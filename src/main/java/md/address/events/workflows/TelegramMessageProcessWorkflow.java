@@ -15,7 +15,7 @@ public class TelegramMessageProcessWorkflow implements TelegramMessageProcess {
             Workflow.newActivityStub(
                     MessageProcess.class,
                     ActivityOptions.newBuilder()
-                            .setStartToCloseTimeout(Duration.ofMinutes(1))
+                            .setStartToCloseTimeout(Duration.ofMinutes(5))
                             .setRetryOptions(RetryOptions.newBuilder()
                                     .setInitialInterval(Duration.ofSeconds(1))
                                     .setMaximumInterval(Duration.ofSeconds(300))
