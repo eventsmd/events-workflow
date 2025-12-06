@@ -6,6 +6,8 @@ import md.address.events.domain.MessageReference;
 import md.address.events.domain.ParsedMessage;
 import md.address.events.domain.TelegramMessage;
 import md.address.events.geo.AddressAdapter;
+import md.address.events.messaging.MessageSender;
+import md.address.events.messaging.MessageToSend;
 import md.address.events.persistence.AddressEntity;
 import md.address.events.persistence.AddressRepository;
 import md.address.events.persistence.SubscribtionRepository;
@@ -19,13 +21,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigInteger;
+import java.time.format.DateTimeFormatter;
 import java.util.UUID;
 
 @Component
 @ActivityImpl(taskQueues = "TelegramMessageQueue")
 public class MessageProcessActivity implements MessageProcess {
 
+    private final MessageSender messageSender;
     Logger log = LoggerFactory.getLogger(MessageProcessActivity.class);
+    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
 
     private final TelegramMessageRepository telegramMessageRepository;
     private final TelegramMessageTranscribeRepository telegramMessageTranscribeRepository;
@@ -34,13 +39,21 @@ public class MessageProcessActivity implements MessageProcess {
     private final AddressAdapter addressAdapter;
     private final SubscribtionRepository subscribtionRepository;
 
-    public MessageProcessActivity(TelegramMessageRepository telegramMessageRepository, TelegramMessageTranscribeRepository telegramMessageTranscribeRepository, AddressRepository addressRepository, MessageParser messageParser, AddressAdapter addressAdapter, SubscribtionRepository subscribtionRepository) {
+    public MessageProcessActivity(
+            TelegramMessageRepository telegramMessageRepository,
+            TelegramMessageTranscribeRepository telegramMessageTranscribeRepository,
+            AddressRepository addressRepository,
+            MessageParser messageParser,
+            AddressAdapter addressAdapter,
+            SubscribtionRepository subscribtionRepository,
+            MessageSender messageSender) {
         this.telegramMessageRepository = telegramMessageRepository;
         this.telegramMessageTranscribeRepository = telegramMessageTranscribeRepository;
         this.addressRepository = addressRepository;
         this.messageParser = messageParser;
         this.addressAdapter = addressAdapter;
         this.subscribtionRepository = subscribtionRepository;
+        this.messageSender = messageSender;
     }
 
     @Override
@@ -101,12 +114,54 @@ public class MessageProcessActivity implements MessageProcess {
     @Override
     public void notify(BigInteger id, BigInteger chatId) {
 
-        addressRepository.findByMessageIdAndChatId(id, chatId).forEach(address -> {
-            if(address.getStreetKladr() != null) {
-                subscribtionRepository.findBySubscribeToKladr(address.getStreetKladr()).forEach(subscription -> {
-                    log.info("Notify client {} about address {}", subscription.getTgId(), subscription.getSubscribeToFulltext());
-                });
-            }
-        });
+        addressRepository.findByMessageIdAndChatId(id, chatId).forEach(address ->
+                telegramMessageTranscribeRepository.findById(new TelegramMessageId(id, chatId))
+                    .ifPresent(messageTranscribe ->
+                        telegramMessageRepository.findById(new TelegramMessageId(id, chatId)).ifPresent(
+                                message -> {
+                            if (address.getStreetKladr() != null) {
+                                subscribtionRepository.findBySubscribeToKladr(address.getStreetKladr()).forEach(
+                                        subscription -> {
+
+                                    var supplier = message.getContext().get("supplier");
+                                    var serviceEmoji = switch (supplier) {
+                                        case "water" -> "💧";
+                                        case "electricity" -> "⚡️";
+                                        case null, default -> "";
+                                    };
+
+                                    var serviceName = switch (supplier) {
+                                        case "water" -> "воды";
+                                        case "electricity" -> "электричества";
+                                        case null, default -> "";
+                                    };
+
+                                    var eventDescription = switch (messageTranscribe.getEvent()) {
+                                        case "shutdown" -> "Отключение";
+                                        case "resume" -> "Возобновление";
+                                        case null, default -> "";
+                                    };
+
+                                    var messageText = "%s%s%s по адресу «%s» с %s%n%n%s".formatted(
+                                            serviceEmoji,
+                                            eventDescription,
+                                            serviceName,
+                                            subscription.getSubscribeToFulltext(),
+                                            DATETIME_FORMAT.format(messageTranscribe.getEventStart()),
+                                            messageTranscribe.getDescription()
+                                    );
+
+                                    messageSender.sendMessage(new MessageToSend(
+                                            new BigInteger(subscription.getTgId()),
+                                            messageText,
+                                            supplier
+                                    ));
+
+                                    log.info("Notify client {} about address {}",
+                                            subscription.getTgId(),
+                                            subscription.getSubscribeToFulltext());
+                                });
+                            }
+                    })));
     }
 }

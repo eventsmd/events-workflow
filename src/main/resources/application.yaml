@@ -31,15 +31,15 @@ spring:
     connection:
       target: ${TEMPORAL_URL}
     workers:
-#      - task-queue: process-telegram-queue
-#        name: process-telegram-worker
-#        workflow-classes:
-#          - your.package.YouWorkflowImpl
-#        activity-beans:
-#          - activity-bean-name1
     workersAutoDiscovery:
       packages: md.address.events.workflows
-
+  cloud:
+    aws:
+      credentials:
+        access-key: ${AWS_ACCESS_KEY_ID}
+        secret-key: ${AWS_SECRET_ACCESS_KEY}
+      region:
+        static: ${AWS_REGION}
 management:
   endpoints:
     web:
