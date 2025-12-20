@@ -142,7 +142,7 @@ public class MessageProcessActivity implements MessageProcess {
                                         case null, default -> "";
                                     };
 
-                                    var messageText = "%s%s%s по адресу «%s» с %s%n%n%s".formatted(
+                                    var messageText = "%s %s услуги %s по адресу «%s» с %s%n%n%s".formatted(
                                             serviceEmoji,
                                             eventDescription,
                                             serviceName,
