@@ -131,8 +131,8 @@ public class MessageProcessActivity implements MessageProcess {
                                     };
 
                                     var serviceName = switch (supplier) {
-                                        case "water" -> "воды";
-                                        case "electricity" -> "электричества";
+                                        case "water" -> "водоснабжения";
+                                        case "electricity" -> "электроснабжения";
                                         case null, default -> "";
                                     };
 
