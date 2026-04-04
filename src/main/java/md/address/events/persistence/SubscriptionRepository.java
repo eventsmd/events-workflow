@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.UUID;
 
 @Repository
-public interface SubscribtionRepository extends JpaRepository<Subscription, UUID> {
+public interface SubscriptionRepository extends JpaRepository<Subscription, UUID> {
 
     List<Subscription> findBySubscribeToKladr(String kladr);
 }

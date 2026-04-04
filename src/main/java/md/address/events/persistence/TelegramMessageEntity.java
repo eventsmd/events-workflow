@@ -100,7 +100,7 @@ public class TelegramMessageEntity {
 
         var supplierName = this.serviceName;
 
-        if (supplierName == null) supplierName = context.get("supplier");
+        if (supplierName == null && context != null) supplierName = context.get("supplier");
 
         return new TelegramMessage(
                 id,

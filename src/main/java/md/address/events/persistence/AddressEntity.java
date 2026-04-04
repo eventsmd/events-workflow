@@ -60,17 +60,12 @@ public class AddressEntity {
         entity.setChatId(messageReference.chatId());
         if (address.house() != null) {
             if (address.house().numbers() != null && !address.house().numbers().isEmpty()) {
-                entity.setHouseNumbers(address.house().numbers().stream()
-                        .reduce("", (a, b) -> a + b + ","));
+                entity.setHouseNumbers(String.join(",", address.house().numbers()));
             }
             if (address.house().ranges() != null && !address.house().ranges().isEmpty()) {
-                entity.setHouseRanges(address.house().ranges()
-                        .stream().map(range ->
-                                range.stream()
-                                        .reduce("", (a, b) -> a + b + "-")
-                        )
-                        .reduce("", (a, b) -> a + b + ";")
-                );
+                entity.setHouseRanges(address.house().ranges().stream()
+                        .map(range -> String.join("-", range))
+                        .collect(java.util.stream.Collectors.joining(";")));
             }
         }
         return entity;

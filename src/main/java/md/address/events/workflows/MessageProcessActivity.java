@@ -10,7 +10,7 @@ import md.address.events.messaging.MessageSender;
 import md.address.events.messaging.MessageToSend;
 import md.address.events.persistence.AddressEntity;
 import md.address.events.persistence.AddressRepository;
-import md.address.events.persistence.SubscribtionRepository;
+import md.address.events.persistence.SubscriptionRepository;
 import md.address.events.persistence.TelegramMessageEntity;
 import md.address.events.persistence.TelegramMessageId;
 import md.address.events.persistence.TelegramMessageRepository;
@@ -29,7 +29,7 @@ import java.util.UUID;
 public class MessageProcessActivity implements MessageProcess {
 
     private final MessageSender messageSender;
-    Logger log = LoggerFactory.getLogger(MessageProcessActivity.class);
+    private static final Logger log = LoggerFactory.getLogger(MessageProcessActivity.class);
     private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm");
 
     private final TelegramMessageRepository telegramMessageRepository;
@@ -37,7 +37,7 @@ public class MessageProcessActivity implements MessageProcess {
     private final AddressRepository addressRepository;
     private final MessageParser messageParser;
     private final AddressAdapter addressAdapter;
-    private final SubscribtionRepository subscribtionRepository;
+    private final SubscriptionRepository subscriptionRepository;
 
     public MessageProcessActivity(
             TelegramMessageRepository telegramMessageRepository,
@@ -45,14 +45,14 @@ public class MessageProcessActivity implements MessageProcess {
             AddressRepository addressRepository,
             MessageParser messageParser,
             AddressAdapter addressAdapter,
-            SubscribtionRepository subscribtionRepository,
+            SubscriptionRepository subscriptionRepository,
             MessageSender messageSender) {
         this.telegramMessageRepository = telegramMessageRepository;
         this.telegramMessageTranscribeRepository = telegramMessageTranscribeRepository;
         this.addressRepository = addressRepository;
         this.messageParser = messageParser;
         this.addressAdapter = addressAdapter;
-        this.subscribtionRepository = subscribtionRepository;
+        this.subscriptionRepository = subscriptionRepository;
         this.messageSender = messageSender;
     }
 
@@ -120,7 +120,7 @@ public class MessageProcessActivity implements MessageProcess {
                         telegramMessageRepository.findById(new TelegramMessageId(id, chatId)).ifPresent(
                                 message -> {
                             if (address.getStreetKladr() != null) {
-                                subscribtionRepository.findBySubscribeToKladr(address.getStreetKladr()).forEach(
+                                subscriptionRepository.findBySubscribeToKladr(address.getStreetKladr()).forEach(
                                         subscription -> {
 
                                     var supplier = message.getContext().get("supplier");
@@ -154,7 +154,9 @@ public class MessageProcessActivity implements MessageProcess {
                                     messageSender.sendMessage(new MessageToSend(
                                             new BigInteger(subscription.getTgId()),
                                             messageText,
-                                            supplier
+                                            supplier,
+                                            id,
+                                            chatId
                                     ));
 
                                     log.info("Notify client {} about address {}",

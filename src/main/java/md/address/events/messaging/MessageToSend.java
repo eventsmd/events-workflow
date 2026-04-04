@@ -8,6 +8,10 @@ public record MessageToSend(
         @JsonProperty("telegram_id")
         BigInteger telegramId,
         String message,
-        String topic
+        String topic,
+        @JsonProperty("message_id")
+        BigInteger messageId,
+        @JsonProperty("chat_id")
+        BigInteger chatId
 ) {
 }
