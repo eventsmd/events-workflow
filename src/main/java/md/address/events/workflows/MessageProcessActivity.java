@@ -6,6 +6,7 @@ import md.address.events.domain.MessageReference;
 import md.address.events.domain.ParsedMessage;
 import md.address.events.domain.TelegramMessage;
 import md.address.events.geo.AddressAdapter;
+import md.address.events.geo.KladrCode;
 import md.address.events.messaging.MessageSender;
 import md.address.events.messaging.MessageToSend;
 import md.address.events.persistence.AddressEntity;
@@ -119,8 +120,12 @@ public class MessageProcessActivity implements MessageProcess {
                     .ifPresent(messageTranscribe ->
                         telegramMessageRepository.findById(new TelegramMessageId(id, chatId)).ifPresent(
                                 message -> {
-                            if (address.getStreetKladr() != null) {
-                                subscriptionRepository.findBySubscribeToKladr(address.getStreetKladr()).forEach(
+                            var kladrRaw = address.getStreetKladr() != null ? address.getStreetKladr()
+                                    : address.getCityKladr() != null ? address.getCityKladr()
+                                    : address.getRegionKladr();
+                            if (kladrRaw != null) {
+                                var prefix = KladrCode.parse(kladrRaw).prefix();
+                                subscriptionRepository.findBySubscribeToKladrStartingWith(prefix).forEach(
                                         subscription -> {
 
                                     var supplier = message.getContext().get("supplier");

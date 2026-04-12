@@ -190,7 +190,7 @@ class MessageProcessActivityTest {
         var chatId = BigInteger.valueOf(200);
 
         var addressEntity = new AddressEntity();
-        addressEntity.setStreetKladr("51000001000007800");
+        addressEntity.setStreetKladr("001-03.004-05.048-07.012-09.456");
         when(addressRepository.findByMessageIdAndChatId(id, chatId))
                 .thenReturn(List.of(addressEntity));
 
@@ -210,8 +210,8 @@ class MessageProcessActivityTest {
         var subscription = new Subscription();
         subscription.setTgId("12345");
         subscription.setSubscribeToFulltext("Кишинёв, ул. Пушкина");
-        subscription.setSubscribeToKladr("51000001000007800");
-        when(subscriptionRepository.findBySubscribeToKladr("51000001000007800"))
+        subscription.setSubscribeToKladr("001-03.004-05.048-07.012-09.456");
+        when(subscriptionRepository.findBySubscribeToKladrStartingWith("001-03.004-05.048-07.012-09.456"))
                 .thenReturn(List.of(subscription));
 
         activity.notify(id, chatId);
@@ -239,12 +239,14 @@ class MessageProcessActivityTest {
     }
 
     @Test
-    void notifyShouldSkipWhenStreetKladrNull() {
+    void notifyShouldSkipWhenAllKladrFieldsNull() {
         var id = BigInteger.valueOf(100);
         var chatId = BigInteger.valueOf(200);
 
         var addressEntity = new AddressEntity();
         addressEntity.setStreetKladr(null);
+        addressEntity.setCityKladr(null);
+        addressEntity.setRegionKladr(null);
         when(addressRepository.findByMessageIdAndChatId(id, chatId))
                 .thenReturn(List.of(addressEntity));
 
@@ -260,8 +262,81 @@ class MessageProcessActivityTest {
 
         activity.notify(id, chatId);
 
-        verify(subscriptionRepository, never()).findBySubscribeToKladr(any());
+        verify(subscriptionRepository, never()).findBySubscribeToKladrStartingWith(any());
         verify(messageSender, never()).sendMessage(any());
+    }
+
+    @Test
+    void notifyShouldMatchSubscribersByCityKladrWhenStreetKladrNull() {
+        var id = BigInteger.valueOf(100);
+        var chatId = BigInteger.valueOf(200);
+
+        var addressEntity = new AddressEntity();
+        addressEntity.setStreetKladr(null);
+        addressEntity.setCityKladr("001-03.004-05.048-00.000-00.000");
+        when(addressRepository.findByMessageIdAndChatId(id, chatId))
+                .thenReturn(List.of(addressEntity));
+
+        var transcribe = new TelegramMessageTranscribeEntity(
+                id, chatId, "SA Apă-Canal", "Отключение воды", "shutdown",
+                LocalDateTime.of(2025, 12, 1, 10, 0),
+                LocalDateTime.of(2025, 12, 1, 18, 0)
+        );
+        when(transcribeRepository.findById(new TelegramMessageId(id, chatId)))
+                .thenReturn(Optional.of(transcribe));
+
+        var messageEntity = new TelegramMessageEntity();
+        messageEntity.setContext(Map.of("supplier", "water"));
+        when(telegramMessageRepository.findById(new TelegramMessageId(id, chatId)))
+                .thenReturn(Optional.of(messageEntity));
+
+        var subscription = new Subscription();
+        subscription.setTgId("12345");
+        subscription.setSubscribeToFulltext("Кишинёв");
+        subscription.setSubscribeToKladr("001-03.004-05.048-00.000-00.000");
+        when(subscriptionRepository.findBySubscribeToKladrStartingWith("001-03.004-05.048"))
+                .thenReturn(List.of(subscription));
+
+        activity.notify(id, chatId);
+
+        verify(messageSender).sendMessage(any(MessageToSend.class));
+    }
+
+    @Test
+    void notifyShouldFallbackToRegionKladrWhenCityAndStreetNull() {
+        var id = BigInteger.valueOf(100);
+        var chatId = BigInteger.valueOf(200);
+
+        var addressEntity = new AddressEntity();
+        addressEntity.setStreetKladr(null);
+        addressEntity.setCityKladr(null);
+        addressEntity.setRegionKladr("001-05.001-00.000-00.000-00.000");
+        when(addressRepository.findByMessageIdAndChatId(id, chatId))
+                .thenReturn(List.of(addressEntity));
+
+        var transcribe = new TelegramMessageTranscribeEntity(
+                id, chatId, "SA Apă-Canal", "Отключение воды", "shutdown",
+                LocalDateTime.of(2025, 12, 1, 10, 0),
+                LocalDateTime.of(2025, 12, 1, 18, 0)
+        );
+        when(transcribeRepository.findById(new TelegramMessageId(id, chatId)))
+                .thenReturn(Optional.of(transcribe));
+
+        var messageEntity = new TelegramMessageEntity();
+        messageEntity.setContext(Map.of("supplier", "water"));
+        when(telegramMessageRepository.findById(new TelegramMessageId(id, chatId)))
+                .thenReturn(Optional.of(messageEntity));
+
+        var subscription = new Subscription();
+        subscription.setTgId("12345");
+        subscription.setSubscribeToFulltext("Район");
+        subscription.setSubscribeToKladr("001-05.001-00.000-00.000-00.000");
+        when(subscriptionRepository.findBySubscribeToKladrStartingWith("001-05.001"))
+                .thenReturn(List.of(subscription));
+
+        activity.notify(id, chatId);
+
+        verify(messageSender).sendMessage(any(MessageToSend.class));
     }
 
     private TelegramMessage createTestMessage(MessageReference replyTo) {
