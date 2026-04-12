@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class MessageSender {
 
-    @Value("${AWS_SQS_QUEUE_NAME}")
+    @Value("${AWS_SQS_QUEUE_NAME:events-notifications}")
     private String queueName;
 
     private final SqsTemplate sqsTemplate;

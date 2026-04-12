@@ -1,25 +1,33 @@
 server:
   port: 8080
+  tomcat:
+    threads:
+      max: 10
+      min-spare: 2
+    max-connections: 100
 spring:
+  main:
+    lazy-initialization: true
   ai:
     openai:
-      api-key: ${OPENAI_API_KEY}
+      api-key: ${OPENAI_API_KEY:placeholder}
   application:
     name: events-workflow
   datasource:
-    url: ${DB_URL}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/events}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     driver-class-name: org.postgresql.Driver
   flyway:
     enabled: true
     locations: classpath:db/migration
-    url: ${DB_URL}
-    user: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/events}
+    user: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
     baseline-on-migrate: true
     validate-on-migrate: true
     out-of-order: true
+    detect-encoding: false
   jpa:
     hibernate:
       ddl-auto: none
@@ -29,17 +37,21 @@ spring:
         jdbc.lob.non_contextual_creation: true
   temporal:
     connection:
-      target: ${TEMPORAL_URL}
+      target: ${TEMPORAL_URL:localhost:7233}
     workers:
+      - name: telegram-worker
+        task-queue: TelegramMessageQueue
+        workflow-classes:
+          - md.address.events.workflows.TelegramMessageProcessWorkflow
     workersAutoDiscovery:
       packages: md.address.events.workflows
   cloud:
     aws:
       credentials:
-        access-key: ${AWS_ACCESS_KEY_ID}
-        secret-key: ${AWS_SECRET_ACCESS_KEY}
+        access-key: ${AWS_ACCESS_KEY_ID:test}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:test}
       region:
-        static: ${AWS_REGION}
+        static: ${AWS_REGION:us-east-1}
 management:
   endpoints:
     web:
