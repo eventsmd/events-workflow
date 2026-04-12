@@ -10,7 +10,7 @@ import org.springframework.web.service.invoker.HttpServiceProxyFactory;
 @Configuration
 public class GeoConfiguration {
 
-    @Value("${GEO_BASE_URL}")
+    @Value("${GEO_BASE_URL:http://localhost:8081}")
     private String geoBaseUrl;
 
     @Bean
