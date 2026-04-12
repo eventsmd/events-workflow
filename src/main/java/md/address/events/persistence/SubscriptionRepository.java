@@ -10,4 +10,6 @@ import java.util.UUID;
 public interface SubscriptionRepository extends JpaRepository<Subscription, UUID> {
 
     List<Subscription> findBySubscribeToKladr(String kladr);
+
+    List<Subscription> findBySubscribeToKladrStartingWith(String prefix);
 }
