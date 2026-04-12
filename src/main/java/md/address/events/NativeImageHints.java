@@ -19,6 +19,7 @@ import md.address.events.domain.ParsedMessage;
 import md.address.events.domain.TelegramMessage;
 import md.address.events.domain.User;
 import md.address.events.geo.AddressKladr;
+import md.address.events.geo.KladrCode;
 import md.address.events.geo.KladrEntity;
 import md.address.events.messaging.MessageToSend;
 import md.address.events.persistence.AddressEntity;
@@ -74,8 +75,10 @@ public class NativeImageHints implements RuntimeHintsRegistrar {
                 TelegramMessage.class, User.class, MessageReference.class,
                 Address.class, House.class, MessageTranscription.class,
                 ParsedMessage.class, MessageToSend.class,
-                AddressKladr.class, KladrEntity.class
+                AddressKladr.class, KladrEntity.class, KladrCode.class
         ).forEach(c -> hints.reflection().registerType(c, MemberCategory.values()));
+
+        hints.reflection().registerType(KladrCode.Level.class, MemberCategory.values());
 
         // JPA entities
         Stream.of(
