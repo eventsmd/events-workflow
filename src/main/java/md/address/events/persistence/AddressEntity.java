@@ -71,6 +71,18 @@ public class AddressEntity {
         return entity;
     }
 
+    public String formatHouses() {
+        var parts = new java.util.ArrayList<String>();
+        if (houseNumbers != null && !houseNumbers.isBlank()) {
+            parts.addAll(java.util.List.of(houseNumbers.split(",")));
+        }
+        if (houseRanges != null && !houseRanges.isBlank()) {
+            parts.addAll(java.util.List.of(houseRanges.split(";")));
+        }
+        if (parts.isEmpty()) return "";
+        return "д. " + String.join(", ", parts);
+    }
+
     public UUID getId() {
         return id;
     }

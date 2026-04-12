@@ -147,11 +147,16 @@ public class MessageProcessActivity implements MessageProcess {
                                         case null, default -> "";
                                     };
 
+                                    var houses = address.formatHouses();
+                                    var addressText = houses.isEmpty()
+                                            ? subscription.getSubscribeToFulltext()
+                                            : "%s, %s".formatted(subscription.getSubscribeToFulltext(), houses);
+
                                     var messageText = "%s %s услуги %s по адресу «%s» с %s%n%n%s".formatted(
                                             serviceEmoji,
                                             eventDescription,
                                             serviceName,
-                                            subscription.getSubscribeToFulltext(),
+                                            addressText,
                                             DATETIME_FORMAT.format(messageTranscribe.getEventStart()),
                                             messageTranscribe.getDescription()
                                     );
