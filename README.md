@@ -26,6 +26,7 @@ Telegram -> [SQS/Temporal] -> EventsWorkflow -> [OpenAI] -> [KLADR API] -> [SQS]
 3. **Save parsed data** — persist transcription and extracted addresses
 4. **Normalize addresses** — resolve addresses via KLADR API; when multiple matches found, use AI to pick the best one
 5. **Notify subscribers** — find users subscribed to affected streets and send notifications via SQS
+6. **Publish event** — publish the parsed event to the public NATS hub (`pmr.utility.event.<supplier>.<event>`), best-effort and non-blocking
 
 ## Tech Stack
 
@@ -54,6 +55,12 @@ All configuration is via environment variables:
 | `AWS_SECRET_ACCESS_KEY` | AWS secret key |
 | `AWS_REGION` | AWS region |
 | `AWS_SQS_QUEUE_NAME` | SQS queue name for notifications |
+| `NATS_URL` | NATS server URL (e.g. `nats://host:4222`); empty disables publishing |
+| `NATS_USER` / `NATS_PASS` | NATS `ingest` user credentials (optional) |
+| `NATS_CREDS` | path to a NATS creds file (alternative to user/pass) |
+| `NATS_STREAM` | JetStream stream name (default `UTILITY`) |
+| `NATS_SUBJECT_PREFIX` | subject prefix (default `pmr.utility.event`) |
+| `NATS_STREAM_MAX_AGE` | stream retention ISO-8601 duration (default `PT24H`) |
 
 ## Build & Run
 

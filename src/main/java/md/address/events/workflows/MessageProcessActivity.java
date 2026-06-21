@@ -5,6 +5,11 @@ import md.address.events.ai.MessageParser;
 import md.address.events.domain.MessageReference;
 import md.address.events.domain.ParsedMessage;
 import md.address.events.domain.TelegramMessage;
+import md.address.events.events.EventAddress;
+import md.address.events.events.EventSource;
+import md.address.events.events.KladrRef;
+import md.address.events.events.NatsEventPublisher;
+import md.address.events.events.UtilityEvent;
 import md.address.events.geo.AddressAdapter;
 import md.address.events.geo.KladrCode;
 import md.address.events.messaging.MessageSender;
@@ -22,7 +27,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.math.BigInteger;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Component
@@ -39,6 +47,7 @@ public class MessageProcessActivity implements MessageProcess {
     private final MessageParser messageParser;
     private final AddressAdapter addressAdapter;
     private final SubscriptionRepository subscriptionRepository;
+    private final NatsEventPublisher natsEventPublisher;
 
     public MessageProcessActivity(
             TelegramMessageRepository telegramMessageRepository,
@@ -47,7 +56,8 @@ public class MessageProcessActivity implements MessageProcess {
             MessageParser messageParser,
             AddressAdapter addressAdapter,
             SubscriptionRepository subscriptionRepository,
-            MessageSender messageSender) {
+            MessageSender messageSender,
+            NatsEventPublisher natsEventPublisher) {
         this.telegramMessageRepository = telegramMessageRepository;
         this.telegramMessageTranscribeRepository = telegramMessageTranscribeRepository;
         this.addressRepository = addressRepository;
@@ -55,6 +65,7 @@ public class MessageProcessActivity implements MessageProcess {
         this.addressAdapter = addressAdapter;
         this.subscriptionRepository = subscriptionRepository;
         this.messageSender = messageSender;
+        this.natsEventPublisher = natsEventPublisher;
     }
 
     @Override
@@ -175,5 +186,61 @@ public class MessageProcessActivity implements MessageProcess {
                                 });
                             }
                     })));
+    }
+
+    @Override
+    public void publishEvent(BigInteger id, BigInteger chatId) {
+        var messageOpt = telegramMessageRepository.findById(new TelegramMessageId(id, chatId));
+        var transcribeOpt = telegramMessageTranscribeRepository.findById(new TelegramMessageId(id, chatId));
+        if (messageOpt.isEmpty() || transcribeOpt.isEmpty()) {
+            log.info("Skip publishEvent for {}:{} — message or transcript missing", id, chatId);
+            return;
+        }
+        var message = messageOpt.get();
+        var transcribe = transcribeOpt.get();
+        var supplier = message.getContext() != null ? message.getContext().get("supplier") : null;
+
+        var addresses = addressRepository.findByMessageIdAndChatId(id, chatId).stream()
+                .map(this::toEventAddress)
+                .toList();
+
+        var event = new UtilityEvent(
+                message.getIncidentId() != null ? message.getIncidentId().toString() : null,
+                supplier,
+                transcribe.getEvent(),
+                transcribe.getOrganization(),
+                transcribe.getDescription(),
+                transcribe.getEventStart(),
+                transcribe.getEventStop(),
+                Instant.now(),
+                new EventSource(id, chatId),
+                addresses
+        );
+        natsEventPublisher.publish(event);
+    }
+
+    private EventAddress toEventAddress(AddressEntity a) {
+        return new EventAddress(
+                kladrRef(a.getRegionName(), a.getRegionKladr(), a.getRegionType()),
+                kladrRef(a.getCityName(), a.getCityKladr(), a.getCityType()),
+                kladrRef(a.getStreetName(), a.getStreetKladr(), a.getStreetType()),
+                houses(a)
+        );
+    }
+
+    private KladrRef kladrRef(String name, String kladr, String type) {
+        if (name == null && kladr == null && type == null) return null;
+        return new KladrRef(name, kladr, type);
+    }
+
+    private List<String> houses(AddressEntity a) {
+        var parts = new ArrayList<String>();
+        if (a.getHouseNumbers() != null && !a.getHouseNumbers().isBlank()) {
+            parts.addAll(List.of(a.getHouseNumbers().split(",")));
+        }
+        if (a.getHouseRanges() != null && !a.getHouseRanges().isBlank()) {
+            parts.addAll(List.of(a.getHouseRanges().split(";")));
+        }
+        return parts;
     }
 }

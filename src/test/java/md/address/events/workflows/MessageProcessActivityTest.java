@@ -2,6 +2,7 @@ package md.address.events.workflows;
 
 import md.address.events.ai.MessageParser;
 import md.address.events.domain.*;
+import md.address.events.events.NatsEventPublisher;
 import md.address.events.geo.AddressAdapter;
 import md.address.events.messaging.MessageSender;
 import md.address.events.persistence.*;
@@ -35,6 +36,7 @@ class MessageProcessActivityTest {
     @Mock private AddressAdapter addressAdapter;
     @Mock private SubscriptionRepository subscriptionRepository;
     @Mock private MessageSender messageSender;
+    @Mock private NatsEventPublisher natsEventPublisher;
 
     private MessageProcessActivity activity;
 
@@ -47,7 +49,8 @@ class MessageProcessActivityTest {
                 messageParser,
                 addressAdapter,
                 subscriptionRepository,
-                messageSender
+                messageSender,
+                natsEventPublisher
         );
     }
 
@@ -337,6 +340,68 @@ class MessageProcessActivityTest {
         activity.notify(id, chatId);
 
         verify(messageSender).sendMessage(any(MessageToSend.class));
+    }
+
+    @Test
+    void publishEventShouldPublishMappedUtilityEvent() {
+        var id = BigInteger.valueOf(100);
+        var chatId = BigInteger.valueOf(200);
+
+        var incidentId = UUID.randomUUID();
+        var messageEntity = new TelegramMessageEntity();
+        messageEntity.setIncidentId(incidentId);
+        messageEntity.setContext(Map.of("supplier", "water"));
+        when(telegramMessageRepository.findById(new TelegramMessageId(id, chatId)))
+                .thenReturn(Optional.of(messageEntity));
+
+        var transcribe = new TelegramMessageTranscribeEntity(
+                id, chatId, "SA Apă-Canal", "Отключение воды", "shutdown",
+                LocalDateTime.of(2026, 6, 21, 10, 0), LocalDateTime.of(2026, 6, 21, 18, 0));
+        when(transcribeRepository.findById(new TelegramMessageId(id, chatId)))
+                .thenReturn(Optional.of(transcribe));
+
+        var addressEntity = new AddressEntity();
+        addressEntity.setStreetName("Пушкина");
+        addressEntity.setStreetKladr("001-01.001");
+        addressEntity.setStreetType("ул");
+        addressEntity.setHouseNumbers("1,3");
+        addressEntity.setHouseRanges("5-9");
+        when(addressRepository.findByMessageIdAndChatId(id, chatId))
+                .thenReturn(List.of(addressEntity));
+
+        activity.publishEvent(id, chatId);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(md.address.events.events.UtilityEvent.class);
+        verify(natsEventPublisher).publish(captor.capture());
+        var published = captor.getValue();
+        assertEquals(incidentId.toString(), published.incidentId());
+        assertEquals("water", published.supplier());
+        assertEquals("shutdown", published.event());
+        assertEquals(id, published.source().messageId());
+        assertEquals(1, published.addresses().size());
+        assertEquals(List.of("1", "3", "5-9"), published.addresses().get(0).houses());
+        assertEquals("001-01.001", published.addresses().get(0).street().kladr());
+    }
+
+    @Test
+    void publishEventShouldSkipWhenTranscribeMissing() {
+        var id = BigInteger.valueOf(100);
+        var chatId = BigInteger.valueOf(200);
+        when(telegramMessageRepository.findById(any())).thenReturn(Optional.of(new TelegramMessageEntity()));
+        when(transcribeRepository.findById(any())).thenReturn(Optional.empty());
+
+        activity.publishEvent(id, chatId);
+
+        verify(natsEventPublisher, never()).publish(any());
+    }
+
+    @Test
+    void publishEventShouldSkipWhenMessageMissing() {
+        when(telegramMessageRepository.findById(any())).thenReturn(Optional.empty());
+
+        activity.publishEvent(BigInteger.valueOf(100), BigInteger.valueOf(200));
+
+        verify(natsEventPublisher, never()).publish(any());
     }
 
     private TelegramMessage createTestMessage(MessageReference replyTo) {

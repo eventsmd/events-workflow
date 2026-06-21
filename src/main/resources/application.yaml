@@ -6,8 +6,10 @@ server:
       min-spare: 2
     max-connections: 100
 spring:
-  main:
-    lazy-initialization: true
+  # NOTE: do NOT enable spring.main.lazy-initialization. Under GraalVM native-image, Spring AOT
+  # bakes the lazy flag into every bean definition at build time, including Temporal's
+  # `workerFactoryStarter` ApplicationListener. A lazy listener is never instantiated, so it never
+  # receives ApplicationReadyEvent and the Temporal worker never starts (workflows silently time out).
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:placeholder}

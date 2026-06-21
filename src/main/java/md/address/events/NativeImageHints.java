@@ -18,6 +18,10 @@ import md.address.events.domain.MessageTranscription;
 import md.address.events.domain.ParsedMessage;
 import md.address.events.domain.TelegramMessage;
 import md.address.events.domain.User;
+import md.address.events.events.EventAddress;
+import md.address.events.events.EventSource;
+import md.address.events.events.KladrRef;
+import md.address.events.events.UtilityEvent;
 import md.address.events.geo.AddressKladr;
 import md.address.events.geo.KladrCode;
 import md.address.events.geo.KladrEntity;
@@ -75,7 +79,8 @@ public class NativeImageHints implements RuntimeHintsRegistrar {
                 TelegramMessage.class, User.class, MessageReference.class,
                 Address.class, House.class, MessageTranscription.class,
                 ParsedMessage.class, MessageToSend.class,
-                AddressKladr.class, KladrEntity.class, KladrCode.class
+                AddressKladr.class, KladrEntity.class, KladrCode.class,
+                UtilityEvent.class, EventAddress.class, KladrRef.class, EventSource.class
         ).forEach(c -> hints.reflection().registerType(c, MemberCategory.values()));
 
         hints.reflection().registerType(KladrCode.Level.class, MemberCategory.values());
@@ -92,6 +97,24 @@ public class NativeImageHints implements RuntimeHintsRegistrar {
 
         // Hypersistence Utils (PostgreSQL hstore)
         hints.reflection().registerType(PostgreSQLHStoreType.class, MemberCategory.values());
+
+        // gRPC service providers (Temporal transport).
+        // gRPC discovers its channel/name-resolver/load-balancer implementations at runtime via
+        // ServiceLoader (META-INF/services/io.grpc.*). Under native-image these classes are not
+        // reachable unless registered, so the channel to the Temporal endpoint never gets a name
+        // resolver or load balancer and the first RPC hangs until DEADLINE_EXCEEDED. Registering the
+        // providers (so ServiceLoader can instantiate them) is what makes the gRPC connection work.
+        Stream.of(
+                "io.grpc.internal.DnsNameResolverProvider",
+                "io.grpc.internal.PickFirstLoadBalancerProvider",
+                "io.grpc.util.SecretRoundRobinLoadBalancerProvider$Provider",
+                "io.grpc.util.OutlierDetectionLoadBalancerProvider",
+                "io.grpc.netty.shaded.io.grpc.netty.NettyChannelProvider",
+                "io.grpc.netty.shaded.io.grpc.netty.UdsNettyChannelProvider",
+                "io.grpc.netty.shaded.io.grpc.netty.UdsNameResolverProvider",
+                "io.grpc.netty.shaded.io.grpc.netty.NettyServerProvider"
+        ).forEach(name -> hints.reflection().registerTypeIfPresent(
+                classLoader, name, MemberCategory.INVOKE_DECLARED_CONSTRUCTORS));
 
         // Flyway migration resources
         hints.resources().registerPattern("db/migration/*");

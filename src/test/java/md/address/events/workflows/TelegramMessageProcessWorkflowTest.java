@@ -1,13 +1,18 @@
 package md.address.events.workflows;
 
+import io.temporal.client.WorkflowOptions;
+import io.temporal.testing.TestWorkflowEnvironment;
+import io.temporal.worker.Worker;
 import md.address.events.domain.*;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.math.BigInteger;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 /**
  * Tests for the workflow orchestration logic.
@@ -48,6 +53,56 @@ class TelegramMessageProcessWorkflowTest {
     @Test
     void workflowClassShouldImplementInterface() {
         assertTrue(TelegramMessageProcess.class.isAssignableFrom(TelegramMessageProcessWorkflow.class));
+    }
+
+    @Test
+    void publishEventInvokedOnHappyPath() {
+        TestWorkflowEnvironment env = TestWorkflowEnvironment.newInstance();
+        try {
+            Worker worker = env.newWorker("TelegramMessageQueue");
+            worker.registerWorkflowImplementationTypes(TelegramMessageProcessWorkflow.class);
+            MessageProcess activities = mock(MessageProcess.class);
+            var message = createTestMessage();
+            var transcription = new MessageTranscription("org", "desc", "shutdown",
+                    LocalDateTime.now(), null, List.of());
+            when(activities.parseMessage(any())).thenReturn(new ParsedMessage(message, transcription));
+            worker.registerActivitiesImplementations(activities);
+            env.start();
+            TelegramMessageProcess wf = env.getWorkflowClient().newWorkflowStub(
+                    TelegramMessageProcess.class,
+                    WorkflowOptions.newBuilder().setTaskQueue("TelegramMessageQueue").build());
+            wf.processMessage(message);
+            verify(activities).publishEvent(message.id(), message.chatId());
+            verify(activities).notify(message.id(), message.chatId());
+        } finally {
+            env.close();
+        }
+    }
+
+    @Test
+    @Timeout(30)
+    void workflowCompletesWhenPublishEventFails() {
+        TestWorkflowEnvironment env = TestWorkflowEnvironment.newInstance();
+        try {
+            Worker worker = env.newWorker("TelegramMessageQueue");
+            worker.registerWorkflowImplementationTypes(TelegramMessageProcessWorkflow.class);
+            MessageProcess activities = mock(MessageProcess.class);
+            var message = createTestMessage();
+            var transcription = new MessageTranscription("org", "desc", "shutdown",
+                    LocalDateTime.now(), null, List.of());
+            when(activities.parseMessage(any())).thenReturn(new ParsedMessage(message, transcription));
+            doThrow(new RuntimeException("nats down")).when(activities).publishEvent(any(), any());
+            worker.registerActivitiesImplementations(activities);
+            env.start();
+            TelegramMessageProcess wf = env.getWorkflowClient().newWorkflowStub(
+                    TelegramMessageProcess.class,
+                    WorkflowOptions.newBuilder().setTaskQueue("TelegramMessageQueue").build());
+            assertDoesNotThrow(() -> wf.processMessage(message));
+            verify(activities).notify(message.id(), message.chatId());
+            verify(activities, atLeastOnce()).publishEvent(message.id(), message.chatId());
+        } finally {
+            env.close();
+        }
     }
 
     private TelegramMessage createTestMessage() {

@@ -14,4 +14,5 @@ public interface MessageProcess {
     void normalizeAddress(ParsedMessage parsedMessage);
     void saveParsedMessage(ParsedMessage parsedMessage);
     void notify(BigInteger id, BigInteger chatId);
+    void publishEvent(BigInteger id, BigInteger chatId);
 }
