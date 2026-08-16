@@ -19,7 +19,14 @@ type EventAddress struct {
 	Region *KladrRef `json:"region,omitempty"`
 	City   *KladrRef `json:"city,omitempty"`
 	Street *KladrRef `json:"street,omitempty"`
-	Houses []string  `json:"houses,omitempty"`
+	// Houses intentionally has no omitempty: Jackson's NON_NULL only omits a
+	// null List — a non-null empty List still serializes as []. Go's
+	// omitempty conflates nil and len==0, so it must stay off here. Callers
+	// that never intend to include this field should leave it nil (which
+	// still marshals as literal null, unlike Java's key omission); in
+	// practice every real caller (message-transcription mapping) builds a
+	// non-nil slice, so this only matters for hand-built empty events.
+	Houses []string `json:"houses"`
 }
 
 type EventSource struct {
@@ -37,7 +44,9 @@ type UtilityEvent struct {
 	EventStop    *domain.MinuteDateTime `json:"eventStop,omitempty"`
 	PublishedAt  time.Time              `json:"publishedAt"`
 	Source       *EventSource           `json:"source,omitempty"`
-	Addresses    []EventAddress         `json:"addresses,omitempty"`
+	// Addresses: same NON_NULL-vs-omitempty rationale as EventAddress.Houses
+	// above — a non-null empty List in Java still serializes as [].
+	Addresses []EventAddress `json:"addresses"`
 }
 
 // SanitizeToken — порт NatsEventPublisher.sanitizeToken: пробельные и

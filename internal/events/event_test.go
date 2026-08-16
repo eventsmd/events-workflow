@@ -128,6 +128,33 @@ func TestUtilityEvent_JSON_OmitsNullEventStop(t *testing.T) {
 	}
 }
 
+// Регрессия code review round 1: Jackson's @JsonInclude(NON_NULL) only omits
+// a null List — a non-null empty List still serializes as []. Go's
+// omitempty conflates nil and len==0, so Houses/Addresses must not carry
+// omitempty. Real callers (message-transcription mapping) always build
+// non-nil (possibly empty) slices, e.g. Task 10's activity code.
+func TestUtilityEvent_JSON_EmptyHousesAndAddressesSerializeAsEmptyArrays(t *testing.T) {
+	ev := UtilityEvent{
+		IncidentID:  "inc-3",
+		Supplier:    "water",
+		Event:       "shutdown",
+		PublishedAt: time.Date(2026, 8, 16, 12, 0, 0, 0, time.UTC),
+		Addresses:   []EventAddress{}, // non-nil, no rows
+	}
+	b, _ := json.Marshal(ev)
+	s := string(b)
+	if !strings.Contains(s, `"addresses":[]`) {
+		t.Fatalf("want addresses:[] for empty non-nil slice, got %s", s)
+	}
+
+	addr := EventAddress{Houses: []string{}} // non-nil, no house numbers/ranges
+	hb, _ := json.Marshal(addr)
+	hs := string(hb)
+	if !strings.Contains(hs, `"houses":[]`) {
+		t.Fatalf("want houses:[] for empty non-nil slice, got %s", hs)
+	}
+}
+
 // Портировано из NatsEventPublisherTest.sanitizesIllegalTokenChars —
 // по одному служебному символу за раз.
 func TestSanitizeToken_IndividualIllegalChars(t *testing.T) {
