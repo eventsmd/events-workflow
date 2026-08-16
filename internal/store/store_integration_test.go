@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -154,5 +156,57 @@ func TestMigrate_BaselineExistingFlywayDB(t *testing.T) {
 
 	if err := Migrate(url); err != nil { // не должен пытаться выполнить CREATE TABLE повторно
 		t.Fatal(err)
+	}
+}
+
+// TestMigrate_BaselineAfterCrashWindow эмулирует крэш ровно между
+// созданием schema_migrations (побочный эффект NewWithSourceInstance) и
+// вызовом Force(baselineVersion): таблица schema_migrations существует,
+// но пустая, а легаси-таблицы Flyway уже есть. Следующий вызов Migrate
+// должен по-прежнему сделать baseline, а не попытаться заново применить
+// 202512012250 (CREATE TABLE без IF NOT EXISTS упал бы, оставив базу
+// dirty).
+func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	ctx := context.Background()
+	url := startPostgres(t)
+
+	// Шаг 1: как будто Migrate() уже создал migrate-инстанс (что создаёт
+	// пустую schema_migrations), но процесс упал до Force().
+	src, err := iofs.New(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := migrate.NewWithSourceInstance("iofs", src, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srcErr, dbErr := m.Close(); srcErr != nil || dbErr != nil {
+		t.Fatalf("close: src=%v db=%v", srcErr, dbErr)
+	}
+
+	// Шаг 2: легаси-таблицы Flyway-прода уже существуют.
+	pool, err := NewPoolNoHstore(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{
+		"migrations/202512012250_create_telegram_messages.up.sql",
+		"migrations/202512030730_create_subscriptions_table.up.sql",
+	} {
+		sqlBytes, err := migrationsFS.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sqlBytes)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pool.Close()
+
+	if err := Migrate(url); err != nil {
+		t.Fatalf("expected baseline to recover from crash window, got: %v", err)
 	}
 }
