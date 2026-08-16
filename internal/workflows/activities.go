@@ -131,14 +131,20 @@ func (a *Activities) Notify(ctx context.Context, id, chatID int64) error {
 		if err != nil {
 			return err
 		}
-		var supplier string
-		if message.Context != nil {
-			supplier = message.Context["supplier"]
-		}
-		if transcribe.EventStart == nil {
-			return fmt.Errorf("event_start is nil for %d:%d", id, chatID)
-		}
 		for _, sub := range subs {
+			// Java only touches message.getContext().get("supplier") and
+			// messageTranscribe.getEventStart() inside this per-subscription
+			// lambda, so a zero-subscriber address never NPEs. Mirror both:
+			// checked here (not before the subs loop), and — per the
+			// controller's fail-loud ruling — turned into an explicit error
+			// rather than silently sending a degraded notification.
+			if message.Context == nil {
+				return fmt.Errorf("message %d:%d has no context (supplier unknown)", id, chatID)
+			}
+			supplier := message.Context["supplier"]
+			if transcribe.EventStart == nil {
+				return fmt.Errorf("event_start is nil for %d:%d", id, chatID)
+			}
 			houses := addr.FormatHouses()
 			addressText := sub.SubscribeToFulltext
 			if houses != "" {
