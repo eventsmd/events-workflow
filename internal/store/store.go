@@ -4,12 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// acquireTimeout — верхняя граница ожидания свободного соединения из пула,
+// портирует HikariCP's connectionTimeout (30s по умолчанию, application.yaml
+// его не переопределяет). Без него исчерпание пула под нагрузкой блокирует
+// активность на весь 5-минутный StartToCloseTimeout вместо быстрого фейла
+// с последующим ретраем Temporal.
+const acquireTimeout = 30 * time.Second
 
 // NewPool — pgxpool с регистрацией типа hstore (нестандартный OID,
 // pgx требует явной загрузки).
@@ -24,6 +32,13 @@ func NewPool(ctx context.Context, pgURL string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Java: HikariCP maximumPoolSize=10 (default, not overridden in
+	// application.yaml) and connectionTimeout=30s (default). pgxpool's own
+	// default (max(4, NumCPU)) and unbounded acquire wait would let a
+	// starved pool block an activity for the whole 5-minute
+	// StartToCloseTimeout instead of failing fast for Temporal to retry.
+	cfg.MaxConns = 10
+	cfg.ConnConfig.ConnectTimeout = acquireTimeout
 	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		var hstoreOID, hstoreArrayOID uint32
 		err := conn.QueryRow(ctx,
@@ -51,6 +66,22 @@ func NewPoolNoHstore(ctx context.Context, pgURL string) (*pgxpool.Pool, error) {
 type Store struct{ pool *pgxpool.Pool }
 
 func New(pool *pgxpool.Pool) *Store { return &Store{pool} }
+
+// withConn acquires a connection bounded by acquireTimeout (the Hikari
+// connectionTimeout analog) and releases it after fn returns, while fn
+// itself still runs under the caller's own ctx (the activity's full
+// StartToCloseTimeout) — only the wait for a free pool slot is capped, not
+// query execution.
+func (s *Store) withConn(ctx context.Context, fn func(ctx context.Context, conn *pgxpool.Conn) error) error {
+	actx, cancel := context.WithTimeout(ctx, acquireTimeout)
+	conn, err := s.pool.Acquire(actx)
+	cancel()
+	if err != nil {
+		return fmt.Errorf("acquire connection: %w", err)
+	}
+	defer conn.Release()
+	return fn(ctx, conn)
+}
 
 func toHstore(m map[string]string) pgtype.Hstore {
 	if m == nil {
@@ -81,29 +112,33 @@ const msgColumns = `id, chat_id, text, date, service_name, from_id, from_name,
 	reply_to_id, reply_to_chat_id, context, incident_id`
 
 func (s *Store) SaveMessage(ctx context.Context, e *TelegramMessageEntity) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO telegram_messages (`+msgColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-		ON CONFLICT (id, chat_id) DO UPDATE SET
-			text = EXCLUDED.text, date = EXCLUDED.date,
-			service_name = EXCLUDED.service_name,
-			from_id = EXCLUDED.from_id, from_name = EXCLUDED.from_name,
-			reply_to_id = EXCLUDED.reply_to_id,
-			reply_to_chat_id = EXCLUDED.reply_to_chat_id,
-			context = EXCLUDED.context, incident_id = EXCLUDED.incident_id`,
-		e.ID, e.ChatID, e.Text, e.Date, e.ServiceName, e.FromID, e.FromName,
-		e.ReplyToID, e.ReplyToChatID, toHstore(e.Context), e.IncidentID)
-	return err
+	return s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
+			INSERT INTO telegram_messages (`+msgColumns+`)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+			ON CONFLICT (id, chat_id) DO UPDATE SET
+				text = EXCLUDED.text, date = EXCLUDED.date,
+				service_name = EXCLUDED.service_name,
+				from_id = EXCLUDED.from_id, from_name = EXCLUDED.from_name,
+				reply_to_id = EXCLUDED.reply_to_id,
+				reply_to_chat_id = EXCLUDED.reply_to_chat_id,
+				context = EXCLUDED.context, incident_id = EXCLUDED.incident_id`,
+			e.ID, e.ChatID, e.Text, e.Date, e.ServiceName, e.FromID, e.FromName,
+			e.ReplyToID, e.ReplyToChatID, toHstore(e.Context), e.IncidentID)
+		return err
+	})
 }
 
 func (s *Store) FindMessage(ctx context.Context, id, chatID int64) (*TelegramMessageEntity, error) {
 	var e TelegramMessageEntity
 	var h pgtype.Hstore
-	err := s.pool.QueryRow(ctx,
-		`SELECT `+msgColumns+` FROM telegram_messages WHERE id=$1 AND chat_id=$2`,
-		id, chatID).Scan(
-		&e.ID, &e.ChatID, &e.Text, &e.Date, &e.ServiceName, &e.FromID, &e.FromName,
-		&e.ReplyToID, &e.ReplyToChatID, &h, &e.IncidentID)
+	err := s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		return conn.QueryRow(ctx,
+			`SELECT `+msgColumns+` FROM telegram_messages WHERE id=$1 AND chat_id=$2`,
+			id, chatID).Scan(
+			&e.ID, &e.ChatID, &e.Text, &e.Date, &e.ServiceName, &e.FromID, &e.FromName,
+			&e.ReplyToID, &e.ReplyToChatID, &h, &e.IncidentID)
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -115,25 +150,29 @@ func (s *Store) FindMessage(ctx context.Context, id, chatID int64) (*TelegramMes
 }
 
 func (s *Store) SaveTranscribe(ctx context.Context, e *TranscribeEntity) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO telegram_message_transcribes
-			(id, chat_id, organization, description, event, event_start, event_stop)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)
-		ON CONFLICT (id, chat_id) DO UPDATE SET
-			organization = EXCLUDED.organization, description = EXCLUDED.description,
-			event = EXCLUDED.event, event_start = EXCLUDED.event_start,
-			event_stop = EXCLUDED.event_stop`,
-		e.ID, e.ChatID, e.Organization, e.Description, e.Event, e.EventStart, e.EventStop)
-	return err
+	return s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
+			INSERT INTO telegram_message_transcribes
+				(id, chat_id, organization, description, event, event_start, event_stop)
+			VALUES ($1,$2,$3,$4,$5,$6,$7)
+			ON CONFLICT (id, chat_id) DO UPDATE SET
+				organization = EXCLUDED.organization, description = EXCLUDED.description,
+				event = EXCLUDED.event, event_start = EXCLUDED.event_start,
+				event_stop = EXCLUDED.event_stop`,
+			e.ID, e.ChatID, e.Organization, e.Description, e.Event, e.EventStart, e.EventStop)
+		return err
+	})
 }
 
 func (s *Store) FindTranscribe(ctx context.Context, id, chatID int64) (*TranscribeEntity, error) {
 	var e TranscribeEntity
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, chat_id, organization, description, event, event_start, event_stop
-		FROM telegram_message_transcribes WHERE id=$1 AND chat_id=$2`,
-		id, chatID).Scan(&e.ID, &e.ChatID, &e.Organization, &e.Description,
-		&e.Event, &e.EventStart, &e.EventStop)
+	err := s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		return conn.QueryRow(ctx, `
+			SELECT id, chat_id, organization, description, event, event_start, event_stop
+			FROM telegram_message_transcribes WHERE id=$1 AND chat_id=$2`,
+			id, chatID).Scan(&e.ID, &e.ChatID, &e.Organization, &e.Description,
+			&e.Event, &e.EventStart, &e.EventStop)
+	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -169,8 +208,10 @@ func addrArgs(e *AddressEntity) []any {
 }
 
 func (s *Store) SaveAddress(ctx context.Context, e *AddressEntity) error {
-	_, err := s.pool.Exec(ctx, addrUpsert, addrArgs(e)...)
-	return err
+	return s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, addrUpsert, addrArgs(e)...)
+		return err
+	})
 }
 
 func (s *Store) SaveAddresses(ctx context.Context, es []*AddressEntity) error {
@@ -198,53 +239,67 @@ func scanAddress(row pgx.Row) (*AddressEntity, error) {
 }
 
 func (s *Store) FindAddress(ctx context.Context, id uuid.UUID) (*AddressEntity, error) {
-	return scanAddress(s.pool.QueryRow(ctx,
-		`SELECT `+addrColumns+` FROM incident_address WHERE id=$1`, id))
+	var out *AddressEntity
+	err := s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		var err error
+		out, err = scanAddress(conn.QueryRow(ctx,
+			`SELECT `+addrColumns+` FROM incident_address WHERE id=$1`, id))
+		return err
+	})
+	return out, err
 }
 
 func (s *Store) FindAddressesByMessage(ctx context.Context, messageID, chatID int64) ([]*AddressEntity, error) {
-	rows, err := s.pool.Query(ctx,
-		`SELECT `+addrColumns+` FROM incident_address WHERE message_id=$1 AND chat_id=$2`,
-		messageID, chatID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var out []*AddressEntity
-	for rows.Next() {
-		e, err := scanAddress(rows)
+	err := s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		rows, err := conn.Query(ctx,
+			`SELECT `+addrColumns+` FROM incident_address WHERE message_id=$1 AND chat_id=$2`,
+			messageID, chatID)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		out = append(out, e)
-	}
-	return out, rows.Err()
+		defer rows.Close()
+		for rows.Next() {
+			e, err := scanAddress(rows)
+			if err != nil {
+				return err
+			}
+			out = append(out, e)
+		}
+		return rows.Err()
+	})
+	return out, err
 }
 
 func (s *Store) FindSubscriptionsByKladrPrefix(ctx context.Context, prefix string) ([]*Subscription, error) {
-	rows, err := s.pool.Query(ctx, `
-		SELECT id, created_at, subscribe_to_kladr, tg_id, subscribe_to_fulltext
-		FROM subscriptions WHERE subscribe_to_kladr LIKE $1 || '%'`, prefix)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
 	var out []*Subscription
-	for rows.Next() {
-		var s Subscription
-		if err := rows.Scan(&s.ID, &s.CreatedAt, &s.SubscribeToKladr, &s.TgID,
-			&s.SubscribeToFulltext); err != nil {
-			return nil, err
+	err := s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		rows, err := conn.Query(ctx, `
+			SELECT id, created_at, subscribe_to_kladr, tg_id, subscribe_to_fulltext
+			FROM subscriptions WHERE subscribe_to_kladr LIKE $1 || '%'`, prefix)
+		if err != nil {
+			return err
 		}
-		out = append(out, &s)
-	}
-	return out, rows.Err()
+		defer rows.Close()
+		for rows.Next() {
+			var sub Subscription
+			if err := rows.Scan(&sub.ID, &sub.CreatedAt, &sub.SubscribeToKladr, &sub.TgID,
+				&sub.SubscribeToFulltext); err != nil {
+				return err
+			}
+			out = append(out, &sub)
+		}
+		return rows.Err()
+	})
+	return out, err
 }
 
 func (s *Store) SaveSubscription(ctx context.Context, sub *Subscription) error {
-	_, err := s.pool.Exec(ctx, `
-		INSERT INTO subscriptions (id, created_at, subscribe_to_kladr, tg_id, subscribe_to_fulltext)
-		VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
-		sub.ID, sub.CreatedAt, sub.SubscribeToKladr, sub.TgID, sub.SubscribeToFulltext)
-	return err
+	return s.withConn(ctx, func(ctx context.Context, conn *pgxpool.Conn) error {
+		_, err := conn.Exec(ctx, `
+			INSERT INTO subscriptions (id, created_at, subscribe_to_kladr, tg_id, subscribe_to_fulltext)
+			VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO NOTHING`,
+			sub.ID, sub.CreatedAt, sub.SubscribeToKladr, sub.TgID, sub.SubscribeToFulltext)
+		return err
+	})
 }

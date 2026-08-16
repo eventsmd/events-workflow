@@ -78,7 +78,7 @@ func run() error {
 	w := worker.New(temporalClient, workflows.TaskQueue, workflows.WorkerOptions())
 	workflows.Register(w, activities)
 
-	httpServer := server.New(":8080")
+	httpServer := server.New(":8080", pool.Ping)
 	go func() {
 		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("http server", "error", err)

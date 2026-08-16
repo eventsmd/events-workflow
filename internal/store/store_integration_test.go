@@ -8,6 +8,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -208,5 +209,52 @@ func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 
 	if err := Migrate(url); err != nil {
 		t.Fatalf("expected baseline to recover from crash window, got: %v", err)
+	}
+}
+
+// TestStore_WithConn_RespectsCallerDeadline — regression for pool
+// starvation blocking an activity for the full 5-minute
+// StartToCloseTimeout (see acquireTimeout in store.go): with the pool's
+// single connection held elsewhere, a Store call must fail fast once its
+// context expires rather than hang.
+func TestStore_WithConn_RespectsCallerDeadline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	ctx := context.Background()
+	url := startPostgres(t)
+	if err := Migrate(url); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := pgxpool.ParseConfig(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.MaxConns = 1
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+
+	held, err := pool.Acquire(ctx) // exhaust the pool's only connection
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Release()
+
+	s := New(pool)
+	shortCtx, cancel := context.WithTimeout(ctx, 300*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err = s.FindMessage(shortCtx, 1, 2)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected error: pool exhausted")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("FindMessage blocked for %v instead of respecting the caller's deadline", elapsed)
 	}
 }
