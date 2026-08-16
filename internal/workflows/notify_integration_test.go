@@ -14,8 +14,8 @@ import (
 	"events-workflow/internal/store"
 )
 
-// startPostgres — то же, что store.startPostgres (не экспортировано,
-// поэтому продублировано здесь минимально).
+// startPostgres — same as store.startPostgres (not exported,
+// so minimally duplicated here).
 func startPostgres(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()

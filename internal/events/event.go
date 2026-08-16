@@ -1,5 +1,5 @@
-// Package events — публикация UtilityEvent в NATS JetStream.
-// JSON и сабжекты идентичны Java-версии (NatsEventPublisher).
+// Package events — publishing UtilityEvent to NATS JetStream.
+// JSON and subjects are identical to the Java version (NatsEventPublisher).
 package events
 
 import (
@@ -49,9 +49,9 @@ type UtilityEvent struct {
 	Addresses []EventAddress `json:"addresses"`
 }
 
-// SanitizeToken — порт NatsEventPublisher.sanitizeToken: пробельные и
-// служебные для сабжектов символы (. * > /) заменяются на _, подряд идущие
-// схлопываются, крайние обрезаются; пустой результат — "_".
+// SanitizeToken — port of NatsEventPublisher.sanitizeToken: whitespace and
+// subject-reserved characters (. * > /) are replaced with _, consecutive ones
+// are collapsed, leading/trailing are trimmed; empty result becomes "_".
 func SanitizeToken(s string) string {
 	if s == "" {
 		return "_"

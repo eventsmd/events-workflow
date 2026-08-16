@@ -45,7 +45,7 @@ func TestMigrateAndRepos(t *testing.T) {
 	if err := Migrate(url); err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(url); err != nil { // идемпотентность
+	if err := Migrate(url); err != nil { // idempotency
 		t.Fatal(err)
 	}
 
@@ -68,7 +68,7 @@ func TestMigrateAndRepos(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.Text = "updated"
-	if err := s.SaveMessage(ctx, e); err != nil { // saveAndFlush = merge
+	if err := s.SaveMessage(ctx, e); err != nil { // SaveMessage = merge (upsert)
 		t.Fatal(err)
 	}
 	got, err := s.FindMessage(ctx, 1, 2)
@@ -140,7 +140,7 @@ func TestMigrate_BaselineExistingFlywayDB(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Эмулируем прод-базу, мигрированную Flyway: таблицы есть, schema_migrations нет.
+	// Emulate production database migrated by Flyway: tables exist, schema_migrations does not.
 	for _, f := range []string{
 		"migrations/202512012250_create_telegram_messages.up.sql",
 		"migrations/202512030730_create_subscriptions_table.up.sql",
@@ -155,17 +155,17 @@ func TestMigrate_BaselineExistingFlywayDB(t *testing.T) {
 	}
 	pool.Close()
 
-	if err := Migrate(url); err != nil { // не должен пытаться выполнить CREATE TABLE повторно
+	if err := Migrate(url); err != nil { // must not attempt to execute CREATE TABLE again
 		t.Fatal(err)
 	}
 }
 
-// TestMigrate_BaselineAfterCrashWindow эмулирует крэш ровно между
-// созданием schema_migrations (побочный эффект NewWithSourceInstance) и
-// вызовом Force(baselineVersion): таблица schema_migrations существует,
-// но пустая, а легаси-таблицы Flyway уже есть. Следующий вызов Migrate
-// должен по-прежнему сделать baseline, а не попытаться заново применить
-// 202512012250 (CREATE TABLE без IF NOT EXISTS упал бы, оставив базу
+// TestMigrate_BaselineAfterCrashWindow emulates a crash exactly between
+// creation of schema_migrations (side effect of NewWithSourceInstance) and
+// the Force(baselineVersion) call: the schema_migrations table exists,
+// but is empty, and Flyway legacy tables are already present. The next
+// Migrate call must still perform baseline, not attempt to replay
+// 202512012250 (CREATE TABLE without IF NOT EXISTS would fail, leaving the database
 // dirty).
 func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 	if testing.Short() {
@@ -174,8 +174,8 @@ func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 	ctx := context.Background()
 	url := startPostgres(t)
 
-	// Шаг 1: как будто Migrate() уже создал migrate-инстанс (что создаёт
-	// пустую schema_migrations), но процесс упал до Force().
+	// Step 1: as if Migrate() already created a migrate instance (which creates
+	// an empty schema_migrations), but the process crashed before Force().
 	src, err := iofs.New(migrationsFS, "migrations")
 	if err != nil {
 		t.Fatal(err)
@@ -188,7 +188,7 @@ func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 		t.Fatalf("close: src=%v db=%v", srcErr, dbErr)
 	}
 
-	// Шаг 2: легаси-таблицы Flyway-прода уже существуют.
+	// Step 2: Flyway legacy tables from production already exist.
 	pool, err := NewPoolNoHstore(ctx, url)
 	if err != nil {
 		t.Fatal(err)
@@ -212,7 +212,7 @@ func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 	}
 }
 
-// TestStore_WithConn_RespectsCallerDeadline — regression for pool
+// TestStore_WithConn_RespectsCallerDeadline — regression test for pool
 // starvation blocking an activity for the full 5-minute
 // StartToCloseTimeout (see acquireTimeout in store.go): with the pool's
 // single connection held elsewhere, a Store call must fail fast once its

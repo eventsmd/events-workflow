@@ -32,7 +32,7 @@ func TestPostgresURL_AlreadyPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "postgres://a:b@h:5432/db" { // существующий userinfo не перетирается
+	if got != "postgres://a:b@h:5432/db" { // existing userinfo must not be overwritten
 		t.Fatalf("got %q", got)
 	}
 }
@@ -44,7 +44,7 @@ func TestParseISODuration(t *testing.T) {
 		"P1D":     24 * time.Hour,
 		"P1DT12H": 36 * time.Hour,
 		"PT30S":   30 * time.Second,
-		"24h":     24 * time.Hour, // Go-формат тоже принимаем
+		"24h":     24 * time.Hour, // Go format is also accepted
 	}
 	for in, want := range cases {
 		got, err := ParseISODuration(in)

@@ -12,7 +12,7 @@ type Finder interface {
 	Find(ctx context.Context, address string) ([]AddressKladr, error)
 }
 
-// Picker выбирает лучший вариант из нескольких (реализация — ai.AddressPicker).
+// Picker selects the best variant among several (implementation: ai.AddressPicker).
 type Picker interface {
 	PickAddress(ctx context.Context, msg domain.ParsedMessage,
 		entity *store.AddressEntity, list []AddressKladr) (AddressKladr, error)
@@ -27,9 +27,9 @@ func NewAdapter(finder Finder, picker Picker) *Adapter {
 	return &Adapter{finder: finder, picker: picker}
 }
 
-// Enrich — порт AddressAdapter.enrich: ищет варианты по
-// "{city_original} {street_original}", при неоднозначности спрашивает Picker,
-// найденные уровни KLADR записывает в entity.
+// Enrich — port of AddressAdapter.enrich: finds variants by
+// "{city_original} {street_original}", asks Picker on ambiguity,
+// writes found KLADR levels to entity.
 func (a *Adapter) Enrich(ctx context.Context, msg domain.ParsedMessage, e *store.AddressEntity) error {
 	query := fmt.Sprintf("%s %s", strDeref(e.CityOriginal), strDeref(e.StreetOriginal))
 	variants, err := a.finder.Find(ctx, query)

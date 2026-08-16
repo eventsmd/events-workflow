@@ -1,9 +1,9 @@
-// Package integration — сквозной интеграционный тест (порт
-// EventsWorkflowIntegrationTest.java): поднимает postgres + temporal
-// auto-setup + localstack SQS в docker, фейковые geo/OpenAI HTTP-сервисы,
-// стартует воркер в процессе теста и запускает workflow ПО ИМЕНИ (как это
-// делает внешний Telegram-сервис) с JSON-подобным payload — это и есть
-// проверка wire-совместимости, которая имеет значение больше всего.
+// Package integration — end-to-end integration test (port of
+// EventsWorkflowIntegrationTest.java): brings up postgres + temporal
+// auto-setup + localstack SQS in docker, fake geo/OpenAI HTTP services,
+// starts worker in-process, and runs workflow BY NAME (as the external
+// Telegram service does) with JSON-like payload — this is the wire-compatibility
+// check, which matters most.
 package integration
 
 import (
@@ -43,7 +43,7 @@ func TestFullWorkflow(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	// --- инфраструктура
+	// --- infrastructure
 	net, err := network.New(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestFullWorkflow(t *testing.T) {
 	t.Setenv("AWS_REGION", "us-east-1")
 	t.Setenv("AWS_ENDPOINT_URL", "http://localhost:"+lsPort.Port())
 
-	// --- фейки geo и OpenAI
+	// --- fake geo and OpenAI
 	geoSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`[{"full_address":"г. Тирасполь, ул. Ленина",
 			"region":{"kladr":"123-01.001-00.000-00.000-00.000","name":"Приднестровье","type":"р."},
@@ -113,7 +113,7 @@ func TestFullWorkflow(t *testing.T) {
 	}))
 	t.Cleanup(aiSrv.Close)
 
-	// --- миграции, стор, подписка
+	// --- migrations, store, subscription
 	pgURL, err := pg.ConnectionString(ctx, "sslmode=disable")
 	if err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// --- SQS очередь
+	// --- SQS queue
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -151,14 +151,14 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// --- воркер
+	// --- worker
 	aiClient := ai.NewClient(aiSrv.URL, "test")
 	activities := &workflows.Activities{
 		Store:     st,
 		Parser:    ai.NewMessageParser(aiClient),
 		Adapter:   geo.NewAdapter(geo.NewClient(geoSrv.URL), ai.NewAddressPicker(aiClient)),
 		Sender:    sender,
-		Publisher: events.NewPublisher(events.PublisherConfig{}), // NATS выключен — скип, как при пустом NATS_URL
+		Publisher: events.NewPublisher(events.PublisherConfig{}), // NATS disabled — skip, like with empty NATS_URL
 	}
 	temporalEndpoint, err := temporalC.PortEndpoint(ctx, "7233/tcp", "")
 	if err != nil {
@@ -176,7 +176,7 @@ func TestFullWorkflow(t *testing.T) {
 	}
 	defer w.Stop()
 
-	// --- старт workflow ПО ИМЕНИ (как это делает внешний сервис)
+	// --- start workflow BY NAME (as the external service does)
 	run, err := tc.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
 		ID: "it-1", TaskQueue: workflows.TaskQueue,
 	}, workflows.WorkflowName, map[string]any{
@@ -193,7 +193,7 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// --- проверки БД
+	// --- DB checks
 	msg, err := st.FindMessage(ctx, 100, -5)
 	if err != nil || msg == nil || msg.IncidentID == nil {
 		t.Fatalf("message not saved: %+v %v", msg, err)
@@ -210,7 +210,7 @@ func TestFullWorkflow(t *testing.T) {
 		t.Fatalf("address not enriched: %+v", addrs[0])
 	}
 
-	// --- проверка SQS-уведомления
+	// --- SQS notification check
 	recv, err := sqsClient.ReceiveMessage(ctx, &awssqs.ReceiveMessageInput{
 		QueueUrl: created.QueueUrl, MaxNumberOfMessages: 1, WaitTimeSeconds: 10,
 	})

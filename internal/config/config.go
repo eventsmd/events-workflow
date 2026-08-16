@@ -1,6 +1,6 @@
-// Package config загружает конфигурацию из env-переменных.
-// Имена и дефолты идентичны Java-версии (application.yaml) — деплой
-// меняет только хэш образа.
+// Package config loads configuration from environment variables.
+// Names and defaults are identical to the Java version (application.yaml) — deployment
+// changes only the image hash.
 package config
 
 import (
@@ -65,9 +65,9 @@ func mustDuration(s string) time.Duration {
 	return d
 }
 
-// PostgresURL превращает jdbc:postgresql://… (формат Java-версии) в
-// postgresql://user:pass@…, пригодный для pgx и golang-migrate.
-// Уже указанный в URL userinfo имеет приоритет над user/pass.
+// PostgresURL converts jdbc:postgresql://… (Java-version format) to
+// postgresql://user:pass@…, suitable for pgx and golang-migrate.
+// Already-specified userinfo in the URL takes precedence over user/pass.
 func PostgresURL(dbURL, user, pass string) (string, error) {
 	s := strings.TrimPrefix(dbURL, "jdbc:")
 	u, err := url.Parse(s)
@@ -83,8 +83,8 @@ func PostgresURL(dbURL, user, pass string) (string, error) {
 var isoDuration = regexp.MustCompile(
 	`^P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$`)
 
-// ParseISODuration понимает ISO-8601 (PT24H — формат java.time.Duration
-// из старого конфига) и Go-формат (24h).
+// ParseISODuration understands ISO-8601 (PT24H — java.time.Duration format
+// from the old config) and Go format (24h).
 func ParseISODuration(s string) (time.Duration, error) {
 	m := isoDuration.FindStringSubmatch(s)
 	if m == nil {

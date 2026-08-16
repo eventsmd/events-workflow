@@ -15,7 +15,7 @@ type AddressPicker struct{ client *Client }
 
 func NewAddressPicker(c *Client) *AddressPicker { return &AddressPicker{c} }
 
-// PickAddress — дословный порт AddressPicker.pickAddress (Java %n → \n).
+// PickAddress — literal port of AddressPicker.pickAddress (Java %n → \n).
 func (p *AddressPicker) PickAddress(ctx context.Context, msg domain.ParsedMessage,
 	entity *store.AddressEntity, list []geo.AddressKladr) (geo.AddressKladr, error) {
 

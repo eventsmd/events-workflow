@@ -1,5 +1,5 @@
-// Package domain — доменные типы, 1:1 с Java-records. JSON-теги повторяют
-// Jackson-имена: @JsonProperty → snake_case, без аннотации → имя поля record.
+// Package domain — domain types, 1:1 with Java records. JSON tags replicate
+// Jackson names: @JsonProperty → snake_case, no annotation → record field name.
 package domain
 
 import (

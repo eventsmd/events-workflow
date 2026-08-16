@@ -27,7 +27,7 @@ func TestNotificationText_UnknownSupplierAndEvent(t *testing.T) {
 	got := NotificationText("gas", "other", "a",
 		time.Date(2025, 1, 5, 18, 30, 0, 0, time.UTC), "d")
 	want := "  услуги  по адресу «a» с 05-01-2025 18:30\n\nd"
-	if got != want { // пустые эмодзи/название/описание — как switch default в Java
+	if got != want { // empty emoji/name/description — like switch default in Java
 		t.Fatalf("got %q", got)
 	}
 }

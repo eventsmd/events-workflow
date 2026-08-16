@@ -1,5 +1,5 @@
-// Package kladr — VO кода КЛАДР. Формат: CCC-TT.RRR-TT.CCC-TT.DDD-TT.SSS
-// (страна, регион, город, район, улица); блок 00.000 = уровень не задан.
+// Package kladr — KLADR code VO. Format: CCC-TT.RRR-TT.CCC-TT.DDD-TT.SSS
+// (country, region, city, district, street); block 00.000 = level not set.
 package kladr
 
 import (
@@ -35,7 +35,7 @@ func (c Code) String() string { return c.raw }
 
 func (c Code) blocks() []string { return strings.Split(c.raw, "-") }
 
-// Level — самый глубокий ненулевой уровень кода.
+// Level — the deepest non-zero level of the code.
 func (c Code) Level() Level {
 	b := c.blocks()
 	switch {
@@ -52,7 +52,7 @@ func (c Code) Level() Level {
 	}
 }
 
-// Prefix — код без хвостовых блоков 00.000.
+// Prefix — code without trailing 00.000 blocks.
 func (c Code) Prefix() string {
 	b := c.blocks()
 	last := 0

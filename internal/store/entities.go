@@ -1,5 +1,5 @@
-// Package store — персистентность (pgx). Схема таблиц не меняется
-// относительно Java-версии; маппинги повторяют JPA-entity 1:1.
+// Package store — persistence (pgx). Table schema does not change
+// relative to the Java version; mappings repeat JPA-entity 1:1.
 package store
 
 import (
@@ -155,11 +155,11 @@ func AddressEntityFrom(a domain.Address, ref domain.MessageReference) *AddressEn
 	return e
 }
 
-// Houses — список домов для события (порт houses() из MessageProcessActivity).
-// Java начинает с new ArrayList<String>() и никогда не возвращает null —
-// поэтому здесь non-nil пустой срез, а не var parts []string: nil vs []string{}
-// различает "поле отсутствует" и "поле есть, но пустое" при JSON-сериализации
-// EventAddress.Houses ниже по цепочке (events.UtilityEvent).
+// Houses — list of houses for an event (port houses() from MessageProcessActivity).
+// Java starts with new ArrayList<String>() and never returns null —
+// therefore here a non-nil empty slice instead of var parts []string: nil vs []string{}
+// distinguishes "field absent" and "field present but empty" during JSON serialization
+// of EventAddress.Houses downstream (events.UtilityEvent).
 func (e *AddressEntity) Houses() []string {
 	parts := []string{}
 	if s := deref(e.HouseNumbers); strings.TrimSpace(s) != "" {
@@ -171,7 +171,7 @@ func (e *AddressEntity) Houses() []string {
 	return parts
 }
 
-// FormatHouses — «д. 1, 2, 10-20» для текста уведомления (порт formatHouses()).
+// FormatHouses — "д. 1, 2, 10-20" for notification text (port formatHouses()).
 func (e *AddressEntity) FormatHouses() string {
 	parts := e.Houses()
 	if len(parts) == 0 {

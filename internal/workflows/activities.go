@@ -1,6 +1,6 @@
-// Package workflows — Temporal workflow и активити. Имена активити
-// (SaveRawMessage и т.д.) совпадают с Java-версией: Temporal и там и там
-// выводит тип активити из имени метода.
+// Package workflows — Temporal workflow and activities. Activity names
+// (SaveRawMessage, etc.) match the Java version: Temporal extracts the activity
+// type from the method name in both implementations.
 package workflows
 
 import (
@@ -31,8 +31,8 @@ type Activities struct {
 	Publisher *events.Publisher
 }
 
-// SaveRawMessage — порт: incident_id наследуется от reply-to сообщения,
-// иначе (или если у reply-to его нет) генерируется новый.
+// SaveRawMessage — port: incident_id is inherited from the reply-to message,
+// otherwise (or if reply-to is absent) a new one is generated.
 func (a *Activities) SaveRawMessage(ctx context.Context, msg domain.TelegramMessage) error {
 	incidentID := uuid.New()
 	if msg.ReplyTo != nil {
@@ -71,9 +71,9 @@ func (a *Activities) SaveParsedMessage(ctx context.Context, pm domain.ParsedMess
 	return a.Store.SaveAddresses(ctx, entities)
 }
 
-// NormalizeAddress — ошибки обогащения отдельного адреса логируются и
-// глотаются (как try/catch в Java-версии): один плохой адрес не должен
-// ронять обработку остальных.
+// NormalizeAddress — errors during enrichment of individual addresses are logged
+// and swallowed (like try/catch in the Java version): one bad address must not
+// fail processing of the rest.
 func (a *Activities) NormalizeAddress(ctx context.Context, pm domain.ParsedMessage) error {
 	if pm.MessageTranscription == nil {
 		return nil
@@ -116,7 +116,7 @@ func (a *Activities) Notify(ctx context.Context, id, chatID int64) error {
 		return err
 	}
 	if transcribe == nil || message == nil {
-		return nil // ifPresent в Java: молча пропускаем
+		return nil // ifPresent in Java: silently skip
 	}
 	for _, addr := range addrs {
 		kladrRaw := firstNonNil(addr.StreetKladr, addr.CityKladr, addr.RegionKladr)
@@ -125,18 +125,18 @@ func (a *Activities) Notify(ctx context.Context, id, chatID int64) error {
 		}
 		code, err := kladr.Parse(*kladrRaw)
 		if err != nil {
-			return err // Java кидает IllegalArgumentException → ретрай активити
+			return err // Java throws IllegalArgumentException → retry activity
 		}
 		subs, err := a.Store.FindSubscriptionsByKladrPrefix(ctx, code.Prefix())
 		if err != nil {
 			return err
 		}
 		for _, sub := range subs {
-			// Java only touches message.getContext().get("supplier") and
+			// Java only accesses message.getContext().get("supplier") and
 			// messageTranscribe.getEventStart() inside this per-subscription
 			// lambda, so a zero-subscriber address never NPEs. Mirror both:
 			// checked here (not before the subs loop), and — per the
-			// controller's fail-loud ruling — turned into an explicit error
+			// controller's fail-loud ruling — converted to an explicit error
 			// rather than silently sending a degraded notification.
 			if message.Context == nil {
 				return fmt.Errorf("message %d:%d has no context (supplier unknown)", id, chatID)
@@ -168,7 +168,7 @@ func (a *Activities) Notify(ctx context.Context, id, chatID int64) error {
 	return nil
 }
 
-// NotificationText — формат сообщения из MessageProcessActivity.notify.
+// NotificationText — message format from MessageProcessActivity.notify.
 func NotificationText(supplier, event, addressText string, start time.Time, description string) string {
 	var emoji, serviceName string
 	switch supplier {
@@ -235,7 +235,7 @@ func (a *Activities) PublishEvent(ctx context.Context, id, chatID int64) error {
 		Source:       &events.EventSource{MessageID: id, ChatID: chatID},
 		Addresses:    eventAddresses,
 	}
-	a.Publisher.Publish(ctx, ev) // ошибки логируются внутри — best-effort, как в Java
+	a.Publisher.Publish(ctx, ev) // errors logged inside — best-effort, like in Java
 	return nil
 }
 

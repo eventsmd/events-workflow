@@ -26,8 +26,8 @@ func parseLocal(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("cannot parse local datetime %q", s)
 }
 
-// LocalDateTime — java.time.LocalDateTime: без таймзоны; при сериализации
-// секунды опускаются, если равны нулю (поведение Jackson ISO_LOCAL_DATE_TIME).
+// LocalDateTime — java.time.LocalDateTime: without timezone; on serialization
+// seconds are omitted if they are zero (Jackson ISO_LOCAL_DATE_TIME behavior).
 type LocalDateTime struct{ time.Time }
 
 func (t LocalDateTime) String() string {
@@ -54,7 +54,7 @@ func (t *LocalDateTime) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// MinuteDateTime — поля с @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm").
+// MinuteDateTime — fields with @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm").
 type MinuteDateTime struct{ time.Time }
 
 func (t MinuteDateTime) MarshalJSON() ([]byte, error) {

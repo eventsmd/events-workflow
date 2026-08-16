@@ -54,7 +54,7 @@ func TestMinuteDateTime_Roundtrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := json.Marshal(v)
-	if string(b) != `"2025-12-01T22:50"` { // минутный формат при маршале, как @JsonFormat(yyyy-MM-dd'T'HH:mm)
+	if string(b) != `"2025-12-01T22:50"` { // minute format on marshal, like @JsonFormat(yyyy-MM-dd'T'HH:mm)
 		t.Fatalf("got %s", b)
 	}
 }

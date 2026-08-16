@@ -42,7 +42,7 @@ func TestParsedMessage_FieldNames(t *testing.T) {
 }
 
 func TestMessageTranscription_Unmarshal(t *testing.T) {
-	// Формат ответа OpenAI по схеме из промпта MessageParser.
+	// OpenAI response format according to the schema from the MessageParser prompt.
 	payload := `{
 	  "organization": "Водоканал",
 	  "short_description": "отключение",

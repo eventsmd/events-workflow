@@ -13,8 +13,8 @@ import (
 	"events-workflow/internal/domain"
 )
 
-// fakeOpenAI поднимает httptest-сервер, отвечающий фиксированным content;
-// записывает последний присланный prompt.
+// fakeOpenAI starts an httptest server responding with fixed content;
+// records the last sent prompt.
 func fakeOpenAI(t *testing.T, content string, lastPrompt *string) *Client {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

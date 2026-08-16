@@ -12,21 +12,21 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// acquireTimeout — верхняя граница ожидания свободного соединения из пула,
-// портирует HikariCP's connectionTimeout (30s по умолчанию, application.yaml
-// его не переопределяет). Без него исчерпание пула под нагрузкой блокирует
-// активность на весь 5-минутный StartToCloseTimeout вместо быстрого фейла
-// с последующим ретраем Temporal.
+// acquireTimeout — upper limit on waiting for a free connection from the pool,
+// ports HikariCP's connectionTimeout (30s by default, application.yaml
+// does not override it). Without it, pool exhaustion under load blocks
+// an activity for the entire 5-minute StartToCloseTimeout instead of failing fast
+// with subsequent retry by Temporal.
 const acquireTimeout = 30 * time.Second
 
-// NewPool — pgxpool с регистрацией типа hstore (нестандартный OID,
-// pgx требует явной загрузки).
+// NewPool — pgxpool with hstore type registration (non-standard OID,
+// pgx requires explicit loading).
 //
-// Адаптация от брифа: pgx v5.10.0's Conn.LoadType трактует любой
-// catalog-типтайп 'b' как массив (смотрит typelem), поэтому LoadType
-// для самого hstore (скалярный extension-тип, typelem=0) падает с
-// "array element OID not registered". Регистрируем кодеки напрямую
-// через pgtype.HstoreCodec, вычисляя OID/typarray из pg_type сами.
+// Adaptation from brief: pgx v5.10.0's Conn.LoadType interprets any
+// catalog-type 'b' as an array (checks typelem), so LoadType
+// for hstore itself (scalar extension type, typelem=0) fails with
+// "array element OID not registered". We register codecs directly
+// via pgtype.HstoreCodec, computing OID/typarray from pg_type ourselves.
 func NewPool(ctx context.Context, pgURL string) (*pgxpool.Pool, error) {
 	cfg, err := pgxpool.ParseConfig(pgURL)
 	if err != nil {
@@ -58,7 +58,7 @@ func NewPool(ctx context.Context, pgURL string) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
-// NewPoolNoHstore — для миграций/тестов до создания extension hstore.
+// NewPoolNoHstore — for migrations/tests before hstore extension is created.
 func NewPoolNoHstore(ctx context.Context, pgURL string) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, pgURL)
 }

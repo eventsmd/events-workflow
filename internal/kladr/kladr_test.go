@@ -38,7 +38,7 @@ func TestPrefix_TrimsTrailingZeroBlocks(t *testing.T) {
 	if got := c.Prefix(); got != "123" {
 		t.Fatal(got)
 	}
-	// «дырка» посередине: непустой street после нулевого district — префикс до street
+	// a 'hole' in the middle: non-empty street after zero district — prefix up to street
 	c, _ = Parse("123-01.001-00.000-00.000-04.004")
 	if got := c.Prefix(); got != "123-01.001-00.000-00.000-04.004" {
 		t.Fatal(got)

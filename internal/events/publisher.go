@@ -21,9 +21,9 @@ type PublisherConfig struct {
 	StreamMaxAge  time.Duration
 }
 
-// Publisher — порт NatsEventPublisher: ленивое подключение, создание/обновление
-// стрима, publish с dedup по Nats-Msg-Id = incidentId. Все ошибки логируются
-// и глотаются — публикация best-effort и не должна ронять обработку сообщения.
+// Publisher — port of NatsEventPublisher: lazy connection, stream creation/update,
+// publish with dedup by Nats-Msg-Id = incidentId. All errors are logged
+// and swallowed — publishing is best-effort and must not drop message processing.
 type Publisher struct {
 	cfg PublisherConfig
 

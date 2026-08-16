@@ -1,5 +1,5 @@
-// Package geo — клиент geo-сервиса (GET {GEO_BASE_URL}/parse?address=…)
-// и обогащение адресов KLADR-кодами. Порт AddressApi/AddressAdapter.
+// Package geo — geo-service client (GET {GEO_BASE_URL}/parse?address=…)
+// and address enrichment with KLADR codes. Port of AddressApi/AddressAdapter.
 package geo
 
 import (

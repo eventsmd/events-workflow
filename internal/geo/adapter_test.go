@@ -73,7 +73,7 @@ func TestEnrich_NoVariants_NoOp(t *testing.T) {
 }
 
 func TestEnrich_PartialKladr_OnlyPresentLevels(t *testing.T) {
-	v := AddressKladr{City: &KladrEntity{Kladr: "c", Name: "City"}} // без region/street
+	v := AddressKladr{City: &KladrEntity{Kladr: "c", Name: "City"}} // without region/street
 	a := NewAdapter(fakeFinder{[]AddressKladr{v}}, &fakePicker{})
 	e := &store.AddressEntity{}
 	_ = a.Enrich(context.Background(), domain.ParsedMessage{}, e)

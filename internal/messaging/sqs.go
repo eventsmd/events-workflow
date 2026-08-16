@@ -1,5 +1,5 @@
-// Package messaging — отправка уведомлений в SQS. JSON-пейлоад и message
-// attributes (contentType, JavaType) идентичны Spring Cloud AWS SqsTemplate.
+// Package messaging — sending notifications to SQS. JSON payload and message
+// attributes (contentType, JavaType) are identical to Spring Cloud AWS SqsTemplate.
 package messaging
 
 import (
@@ -17,15 +17,15 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
 )
 
-// javaType — значение message attribute JavaType, которое Spring Cloud AWS
-// SqsTemplate проставляет по умолчанию (payload class name), чтобы
-// консьюмер, резолвящий тип полезной нагрузки по этому заголовку, не сломался.
+// javaType — value of the message attribute JavaType, which Spring Cloud AWS
+// SqsTemplate sets by default (payload class name), so that
+// a consumer resolving the payload type by this header does not break.
 const javaType = "md.address.events.messaging.MessageToSend"
 
-// defaultAWSRegion/defaultAWS*Key — дефолты Java-версии (application.yaml:
-// cloud.aws.region.static/credentials), сохраняем для wire-совместимости в
-// локальном/тестовом окружении (LocalStack и т.п.), где эти переменные не
-// заданы.
+// defaultAWSRegion/defaultAWS*Key — defaults from Java version (application.yaml:
+// cloud.aws.region.static/credentials), preserved for wire compatibility in
+// local/test environments (LocalStack etc.) where these variables are not
+// set.
 const (
 	defaultAWSRegion      = "us-east-1"
 	defaultAWSAccessKeyID = "test"

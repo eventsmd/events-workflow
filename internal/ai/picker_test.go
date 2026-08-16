@@ -15,7 +15,7 @@ var _ geo.Picker = (*AddressPicker)(nil)
 
 func TestPickAddress_ReturnsIndexedVariant(t *testing.T) {
 	var prompt string
-	picker := NewAddressPicker(fakeOpenAI(t, " 1 ", &prompt)) // ответ с пробелами — Java делает trim()
+	picker := NewAddressPicker(fakeOpenAI(t, " 1 ", &prompt)) // answer with spaces — Java does trim()
 	list := []geo.AddressKladr{
 		{FullAddress: "г. Тирасполь, ул. Ленина"},
 		{FullAddress: "с. Ближний Хутор, ул. Ленина"},
@@ -32,7 +32,7 @@ func TestPickAddress_ReturnsIndexedVariant(t *testing.T) {
 	if got.FullAddress != "с. Ближний Хутор, ул. Ленина" {
 		t.Fatalf("%+v", got)
 	}
-	// нумерация вариантов с нуля, как AtomicInteger(0) в Java
+	// variant numbering starts at zero, like AtomicInteger(0) in Java
 	if !strings.Contains(prompt, "0. г. Тирасполь, ул. Ленина\n") ||
 		!strings.Contains(prompt, "1. с. Ближний Хутор, ул. Ленина\n") {
 		t.Fatalf("prompt:\n%s", prompt)
@@ -51,6 +51,6 @@ func TestPickAddress_NonNumericAnswer(t *testing.T) {
 		OriginalMessage: domain.TelegramMessage{From: &domain.User{}}},
 		&store.AddressEntity{}, []geo.AddressKladr{{}, {}})
 	if err == nil {
-		t.Fatal("expected parse error") // Java кидает NumberFormatException → ретрай активити
+		t.Fatal("expected parse error") // Java throws NumberFormatException → activity retry
 	}
 }

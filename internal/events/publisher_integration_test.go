@@ -52,7 +52,7 @@ func TestPublisher_PublishAndDedup(t *testing.T) {
 	ev := UtilityEvent{IncidentID: "inc-1", Supplier: "water", Event: "shutdown",
 		PublishedAt: time.Now().UTC()}
 	p.Publish(ctx, ev)
-	p.Publish(ctx, ev) // дубликат по Nats-Msg-Id — не должен добавиться
+	p.Publish(ctx, ev) // duplicate by Nats-Msg-Id — should not be added
 
 	nc, err := nats.Connect(url)
 	if err != nil {
@@ -86,12 +86,12 @@ func TestPublisher_PublishAndDedup(t *testing.T) {
 }
 
 func TestPublisher_EmptyURLSkips(t *testing.T) {
-	p := NewPublisher(PublisherConfig{}) // URL пустой — не должен паниковать/коннектиться
+	p := NewPublisher(PublisherConfig{}) // URL empty — must not panic/connect
 	p.Publish(context.Background(), UtilityEvent{IncidentID: "x"})
 }
 
-// Портировано из NatsEventPublisherTest.publishIsNoOpAndDoesNotThrowWhenUrlBlank:
-// проверяет, что при пустом URL и полностью заполненном событии Publish не паникует.
+// Ported from NatsEventPublisherTest.publishIsNoOpAndDoesNotThrowWhenUrlBlank:
+// verifies that Publish does not panic with empty URL and fully populated event.
 func TestPublisher_EmptyURLSkips_FullEvent(t *testing.T) {
 	p := NewPublisher(PublisherConfig{
 		Stream: "UTILITY", SubjectPrefix: "pmr.utility.event", StreamMaxAge: 24 * time.Hour,
@@ -105,9 +105,9 @@ func TestPublisher_EmptyURLSkips_FullEvent(t *testing.T) {
 	})
 }
 
-// Портировано из NatsEventPublisherIntegrationTest.publishesEventReadableFromStream:
-// проверяет полное тело сообщения (несколько полей) и что addresses/houses
-// корректно проходят через сериализацию/публикацию/чтение.
+// Ported from NatsEventPublisherIntegrationTest.publishesEventReadableFromStream:
+// verifies full message body (multiple fields) and that addresses/houses
+// correctly pass through serialization/publishing/reading.
 func TestPublisher_PublishesFullEventReadableFromStream(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")

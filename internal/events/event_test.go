@@ -18,7 +18,7 @@ func TestSanitizeToken(t *testing.T) {
 		"  spaced  ":    "spaced",
 		"":              "_",
 		"...":           "_",
-		"a  b":          "a_b", // схлопывание подряд идущих
+		"a  b":          "a_b", // collapse consecutive underscores
 		"tab\tand\nnew": "tab_and_new",
 	}
 	for in, want := range cases {
@@ -62,7 +62,7 @@ func TestUtilityEvent_JSON(t *testing.T) {
 			t.Fatalf("missing %s in %s", want, s)
 		}
 	}
-	// NON_NULL: пустые поля отсутствуют
+	// NON_NULL: empty fields are omitted
 	for _, absent := range []string{`"organization"`, `"eventStop"`, `"region"`, `"street"`} {
 		if strings.Contains(s, absent) {
 			t.Fatalf("unexpected %s in %s", absent, s)
@@ -70,8 +70,8 @@ func TestUtilityEvent_JSON(t *testing.T) {
 	}
 }
 
-// Портировано из UtilityEventJsonTest.serializesCamelCaseWithFormattedDates:
-// полностью заполненное событие со всеми тремя KladrRef и organization.
+// Ported from UtilityEventJsonTest.serializesCamelCaseWithFormattedDates:
+// fully populated event with all three KladrRef and organization.
 func TestUtilityEvent_JSON_FullyPopulated(t *testing.T) {
 	start := domain.MinuteDateTime{Time: time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)}
 	stop := domain.MinuteDateTime{Time: time.Date(2026, 6, 21, 18, 0, 0, 0, time.UTC)}
@@ -109,7 +109,7 @@ func TestUtilityEvent_JSON_FullyPopulated(t *testing.T) {
 	}
 }
 
-// Портировано из UtilityEventJsonTest.omitsNullEventStop.
+// Ported from UtilityEventJsonTest.omitsNullEventStop.
 func TestUtilityEvent_JSON_OmitsNullEventStop(t *testing.T) {
 	start := domain.MinuteDateTime{Time: time.Date(2026, 6, 21, 10, 0, 0, 0, time.UTC)}
 	ev := UtilityEvent{
@@ -129,7 +129,7 @@ func TestUtilityEvent_JSON_OmitsNullEventStop(t *testing.T) {
 	}
 }
 
-// Регрессия code review round 1: Jackson's @JsonInclude(NON_NULL) only omits
+// Regression from code review round 1: Jackson's @JsonInclude(NON_NULL) only omits
 // a null List — a non-null empty List still serializes as []. Go's
 // omitempty conflates nil and len==0, so Houses/Addresses must not carry
 // omitempty. Real callers (message-transcription mapping) always build
@@ -156,7 +156,7 @@ func TestUtilityEvent_JSON_EmptyHousesAndAddressesSerializeAsEmptyArrays(t *test
 	}
 }
 
-// Регрессия code review round 2: store.AddressEntity.Houses() must return a
+// Regression from code review round 2: store.AddressEntity.Houses() must return a
 // non-nil empty slice (matching Java's new ArrayList<String>()) so an
 // EventAddress built from a house-less address still marshals as
 // "houses":[] rather than "houses":null.
@@ -169,8 +169,8 @@ func TestUtilityEvent_JSON_HousesFromEmptyAddressEntitySerializesAsEmptyArray(t 
 	}
 }
 
-// Портировано из NatsEventPublisherTest.sanitizesIllegalTokenChars —
-// по одному служебному символу за раз.
+// Ported from NatsEventPublisherTest.sanitizesIllegalTokenChars —
+// one subject-reserved character at a time.
 func TestSanitizeToken_IndividualIllegalChars(t *testing.T) {
 	cases := map[string]string{
 		"a b": "a_b",

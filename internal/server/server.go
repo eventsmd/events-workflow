@@ -1,5 +1,5 @@
-// Package server — HTTP :8080. Пути повторяют Spring Actuator, чтобы
-// k8s-пробы и scrape-конфиг Prometheus не менялись при переезде на Go.
+// Package server — HTTP :8080. Paths mirror Spring Actuator so
+// k8s probes and Prometheus scrape config remain unchanged when moving to Go.
 package server
 
 import (
@@ -10,16 +10,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// pingTimeout — верхняя граница ожидания DB-пинга внутри /actuator/health
-// и /actuator/health/readiness, чтобы застрявшая БД не вешала саму пробу.
+// pingTimeout — upper bound on DB ping timeout inside /actuator/health
+// and /actuator/health/readiness, so a stuck DB does not hang the probe itself.
 const pingTimeout = 5 * time.Second
 
-// New собирает actuator-подобный HTTP-сервер. ping — необязательная
-// проверка готовности (обычно pool.Ping); если она задана и падает,
-// /actuator/health и /actuator/health/readiness отдают 503 DOWN — как
-// Spring's aggregate health, который уводит под down при недоступной БД
-// (и тем самым убирает под из ротации k8s). /actuator/health/liveness
-// всегда UP: процесс жив независимо от состояния БД.
+// New assembles an actuator-like HTTP server. ping is an optional
+// readiness check (usually pool.Ping); if provided and fails,
+// /actuator/health and /actuator/health/readiness return 503 DOWN — like
+// Spring's aggregate health, which goes down when the DB is unreachable
+// (thus removing the pod from k8s rotation). /actuator/health/liveness
+// is always UP: the process is alive regardless of DB state.
 func New(addr string, ping func(context.Context) error) *http.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/actuator/health", healthHandler(ping))

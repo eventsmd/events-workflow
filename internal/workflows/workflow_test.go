@@ -61,14 +61,14 @@ func TestWorkflow_NullTranscription_Skips(t *testing.T) {
 	env.ExecuteWorkflow(TelegramMessageProcess, msg)
 	require.True(t, env.IsWorkflowCompleted())
 	require.NoError(t, env.GetWorkflowError())
-	// SaveParsedMessage/Notify/PublishEvent не были замоканы — вызов упал бы
+	// SaveParsedMessage/Notify/PublishEvent were not mocked — the call would fail
 	env.AssertExpectations(t)
 }
 
 func TestWorkerOptions_GracefulDrain(t *testing.T) {
-	// Регрессия: WorkerStopTimeout=0 (дефолт) отменяет in-flight активити
-	// мгновенно на SIGTERM ⇒ Temporal ретраит активность целиком, и
-	// подписчик, уже получивший SQS-уведомление, получает его снова.
+	// Regression: WorkerStopTimeout=0 (default) cancels in-flight activities
+	// immediately on SIGTERM ⇒ Temporal retries the entire activity, and
+	// a subscriber that already received the SQS notification receives it again.
 	opts := WorkerOptions()
 	require.Equal(t, 5*time.Minute, opts.WorkerStopTimeout)
 }
@@ -85,10 +85,10 @@ func TestWorkflow_PublishFailure_Ignored(t *testing.T) {
 	env.OnActivity(a.SaveParsedMessage, mock.Anything, mock.Anything).Return(nil).Once()
 	env.OnActivity(a.NormalizeAddress, mock.Anything, mock.Anything).Return(nil).Once()
 	env.OnActivity(a.PublishEvent, mock.Anything, mock.Anything, mock.Anything).
-		Return(assertAnError()).Times(3) // 3 попытки ретраев, затем ошибка игнорируется
+		Return(assertAnError()).Times(3) // 3 retry attempts, then error ignored
 	env.OnActivity(a.Notify, mock.Anything, mock.Anything, mock.Anything).Return(nil).Once()
 
 	env.ExecuteWorkflow(TelegramMessageProcess, msg)
 	require.True(t, env.IsWorkflowCompleted())
-	require.NoError(t, env.GetWorkflowError()) // publish best-effort — workflow зелёный
+	require.NoError(t, env.GetWorkflowError()) // publish best-effort — workflow green
 }

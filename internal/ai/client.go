@@ -1,6 +1,6 @@
-// Package ai — вызовы OpenAI. Мини-клиент chat completions на net/http
-// (вместо Spring AI): модель gpt-5-mini, temperature 1.0, промпты — дословный
-// порт MessageParser.java / AddressPicker.java.
+// Package ai — OpenAI calls. Lightweight chat completions client on net/http
+// (instead of Spring AI): model gpt-5-mini, temperature 1.0, prompts are a literal
+// port of MessageParser.java / AddressPicker.java.
 package ai
 
 import (

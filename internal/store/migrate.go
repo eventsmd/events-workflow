@@ -15,24 +15,24 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
-// baselineVersion — версия последней миграции, применённой Flyway в проде.
+// baselineVersion — version of the latest migration applied by Flyway in production.
 const baselineVersion = 202512030730
 
-// Migrate выполняет миграции. Для базы, ранее мигрированной Flyway
-// (легаси-таблицы есть), делает baseline через Force: помечает миграции
-// применёнными, не выполняя SQL. flyway_schema_history не трогается.
+// Migrate executes migrations. For a database previously migrated by Flyway
+// (legacy tables exist), it performs baseline via Force: marks migrations
+// as applied without executing SQL. flyway_schema_history is not touched.
 //
-// Решение о baseline принимается по состоянию самого migrate-инстанса
-// (m.Version()), а не по отдельному "до создания инстанса" запросу к
-// schema_migrations. NewWithSourceInstance/Open уже идемпотентно создаёт
-// schema_migrations (CREATE TABLE IF NOT EXISTS) как побочный эффект —
-// если бы needBaseline решался ДО этого по "таблицы нет", то крэш между
-// созданием инстанса и Force() оставлял бы пустую schema_migrations на
-// проде: следующий старт видел бы таблицу, пропускал baseline и заново
-// проигрывал 202512012250 (CREATE TABLE без IF NOT EXISTS) ⇒ dirty ⇒
-// CrashLoop, требующий ручного SQL. m.Version() возвращает ErrNilVersion
-// и для "таблицы нет", и для "таблица пустая" — оба случая корректно
-// маппятся на "нужен baseline", если легаси-таблицы присутствуют.
+// The decision about baseline is made based on the state of the migrate instance
+// (m.Version()), not via a separate query to schema_migrations before instance
+// creation. NewWithSourceInstance/Open already idempotently creates
+// schema_migrations (CREATE TABLE IF NOT EXISTS) as a side effect —
+// if needBaseline was decided BEFORE this by "table does not exist", a crash between
+// instance creation and Force() would leave an empty schema_migrations in
+// production: the next start would see the table, skip baseline, and replay
+// 202512012250 (CREATE TABLE without IF NOT EXISTS) ⇒ dirty ⇒
+// CrashLoop, requiring manual SQL. m.Version() returns ErrNilVersion
+// both for "table does not exist" and "table is empty" — both cases correctly
+// map to "baseline is needed" if legacy tables are present.
 func Migrate(pgURL string) error {
 	hasLegacy, err := legacyTablesPresent(pgURL)
 	if err != nil {

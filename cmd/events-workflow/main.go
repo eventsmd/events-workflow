@@ -87,7 +87,7 @@ func run() error {
 
 	slog.Info("events-workflow started",
 		"taskQueue", workflows.TaskQueue, "temporal", cfg.TemporalURL)
-	err = w.Run(worker.InterruptCh()) // блокируется до SIGINT/SIGTERM
+	err = w.Run(worker.InterruptCh()) // blocks until SIGINT/SIGTERM
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = httpServer.Shutdown(shutdownCtx)
