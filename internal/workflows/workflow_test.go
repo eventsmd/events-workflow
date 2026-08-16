@@ -65,6 +65,14 @@ func TestWorkflow_NullTranscription_Skips(t *testing.T) {
 	env.AssertExpectations(t)
 }
 
+func TestWorkerOptions_GracefulDrain(t *testing.T) {
+	// Регрессия: WorkerStopTimeout=0 (дефолт) отменяет in-flight активити
+	// мгновенно на SIGTERM ⇒ Temporal ретраит активность целиком, и
+	// подписчик, уже получивший SQS-уведомление, получает его снова.
+	opts := WorkerOptions()
+	require.Equal(t, 5*time.Minute, opts.WorkerStopTimeout)
+}
+
 func TestWorkflow_PublishFailure_Ignored(t *testing.T) {
 	env, a := newEnv(t)
 	msg := testMessage()

@@ -18,6 +18,17 @@ func workflowRegisterOptions() workflow.RegisterOptions {
 	return workflow.RegisterOptions{Name: WorkflowName}
 }
 
+// WorkerOptions — worker.Options для events-workflow. WorkerStopTimeout даёт
+// уже принятым (не in-flight-cancelled) активити доработать при SIGTERM —
+// порт поведения WorkerFactory.shutdown() из Java, который дожидался
+// завершения принятых задач. Без этого таймаута (по умолчанию 0) контекст
+// активности отменяется мгновенно на каждом деплое: Temporal ретраит всю
+// активность заново, а подписчик, уже получивший SQS-сообщение, получает
+// его повторно.
+func WorkerOptions() worker.Options {
+	return worker.Options{WorkerStopTimeout: 5 * time.Minute}
+}
+
 func Register(w worker.Worker, a *Activities) {
 	w.RegisterWorkflowWithOptions(TelegramMessageProcess, workflowRegisterOptions())
 	w.RegisterActivity(a)

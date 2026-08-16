@@ -75,7 +75,7 @@ func run() error {
 	}
 	defer temporalClient.Close()
 
-	w := worker.New(temporalClient, workflows.TaskQueue, worker.Options{})
+	w := worker.New(temporalClient, workflows.TaskQueue, workflows.WorkerOptions())
 	workflows.Register(w, activities)
 
 	httpServer := server.New(":8080")
