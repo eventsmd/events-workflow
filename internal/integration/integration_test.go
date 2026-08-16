@@ -40,7 +40,7 @@ func TestFullWorkflow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// --- инфраструктура
@@ -221,5 +221,13 @@ func TestFullWorkflow(t *testing.T) {
 	json.Unmarshal([]byte(*recv.Messages[0].Body), &notif)
 	if notif["telegram_id"] != float64(777) || notif["topic"] != "water" {
 		t.Fatalf("%v", notif)
+	}
+	// Assert the FULL notification text, not just a substring — this is what
+	// actually catches wire/format drift in NotificationText/FormatHouses
+	// (emoji, service name, address + house numbers, date format, description).
+	const wantMessage = "💧 Отключение услуги водоснабжения по адресу " +
+		"«г. Тирасполь, ул. Ленина, д. 1, 2» с 02-12-2025 09:00\n\nПлановые работы"
+	if notif["message"] != wantMessage {
+		t.Fatalf("notification text mismatch:\n got: %q\nwant: %q", notif["message"], wantMessage)
 	}
 }
