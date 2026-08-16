@@ -92,7 +92,7 @@ go test ./...
 
 ## Database
 
-PostgreSQL with the hstore extension. Migrations live in `migrations/` and are embedded in the binary, applied automatically at startup via `golang-migrate`.
+PostgreSQL with the hstore extension. Migrations live in `internal/store/migrations/` and are embedded in the binary, applied automatically at startup via `golang-migrate`.
 
 ### Tables
 
