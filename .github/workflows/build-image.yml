@@ -11,7 +11,6 @@ permissions:
   packages: write
 
 env:
-  JAVA_VERSION: '25'
   IMAGE_NAME: ghcr.io/${{ github.repository }}:${{ github.sha }}
 
 jobs:
@@ -21,12 +20,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK ${{ env.JAVA_VERSION }}
-        uses: actions/setup-java@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
-          distribution: 'temurin'
-          java-version: ${{ env.JAVA_VERSION }}
-          cache: 'maven'
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test
+        run: go test -short ./...
 
       - name: Configure GitHub Packages (GHCR) login
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -36,12 +37,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build with Maven and create OCI image
-        run: |
-          ./mvnw -B -DskipTests spring-boot:build-image \
-            -Dspring-boot.build-image.imageName=${IMAGE_NAME}
+      - name: Build image
+        run: docker build -t ${IMAGE_NAME} .
 
       - name: Push image to GHCR
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          docker push ${IMAGE_NAME}
+        run: docker push ${IMAGE_NAME}
