@@ -66,3 +66,34 @@ func TestMessageTranscription_Unmarshal(t *testing.T) {
 		t.Fatal("id must stay zero until parser assigns it")
 	}
 }
+
+// TestMessageTranscription_EmptyEventStart_StaysNil — Jackson maps ""→null
+// for LocalDateTime/MinuteDateTime fields; the Go side must leave the
+// pointer nil too instead of allocating a zero time (0001-01-01 00:00),
+// which would otherwise leak into a bogus "... с 01-01-0001 00:00"
+// notification (see workflows.Activities.Notify's nil check).
+func TestMessageTranscription_EmptyEventStart_StaysNil(t *testing.T) {
+	payload := `{"organization":"Водоканал","event":"shutdown",
+	  "event_start":"","event_stop":null,"addresses":[]}`
+	var tr MessageTranscription
+	if err := json.Unmarshal([]byte(payload), &tr); err != nil {
+		t.Fatal(err)
+	}
+	if tr.EventStart != nil {
+		t.Fatalf("expected EventStart nil for \"\", got %+v", *tr.EventStart)
+	}
+	if tr.EventStop != nil {
+		t.Fatalf("expected EventStop nil for null, got %+v", *tr.EventStop)
+	}
+}
+
+// TestMessageTranscription_EventStart_InvalidNonEmpty_Errors — a genuinely
+// malformed (non-empty) timestamp must still fail loudly, per the
+// controller's fail-loud ruling; only the specific ""→null case is special.
+func TestMessageTranscription_EventStart_InvalidNonEmpty_Errors(t *testing.T) {
+	payload := `{"event_start":"not-a-date"}`
+	var tr MessageTranscription
+	if err := json.Unmarshal([]byte(payload), &tr); err == nil {
+		t.Fatal("expected error for malformed event_start")
+	}
+}

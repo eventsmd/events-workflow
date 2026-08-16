@@ -14,7 +14,10 @@ func (f fakeFinder) Find(ctx context.Context, address string) ([]AddressKladr, e
 	return f.result, nil
 }
 
-type fakePicker struct{ picked AddressKladr; called bool }
+type fakePicker struct {
+	picked AddressKladr
+	called bool
+}
 
 func (f *fakePicker) PickAddress(ctx context.Context, msg domain.ParsedMessage,
 	e *store.AddressEntity, list []AddressKladr) (AddressKladr, error) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -11,6 +12,12 @@ func TestClient_Find(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/parse" || r.URL.Query().Get("address") != "Тирасполь Ленина" {
 			t.Errorf("unexpected request: %s %s", r.URL.Path, r.URL.RawQuery)
+		}
+		// Spring's UriComponentsBuilder encodes space as %20, not the
+		// application/x-www-form-urlencoded '+'. A geo backend that
+		// doesn't form-decode must still see %20.
+		if strings.Contains(r.URL.RawQuery, "+") || !strings.Contains(r.URL.RawQuery, "%20") {
+			t.Errorf("expected %%20-encoded space in raw query, got: %s", r.URL.RawQuery)
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`[{"country":"MD","full_address":"г. Тирасполь, ул. Ленина",

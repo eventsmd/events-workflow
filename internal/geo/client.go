@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -38,8 +39,17 @@ func NewClient(baseURL string) *Client {
 	return &Client{baseURL: baseURL, http: &http.Client{Timeout: 30 * time.Second}}
 }
 
+// encodeQueryValue — url.QueryEscape encodes spaces as '+' (application/
+// x-www-form-urlencoded); Spring's UriComponentsBuilder encoded them as
+// %20. A geo backend that doesn't form-decode the query string would see
+// literal '+' characters (e.g. "Тирасполь+Ленина") and silently fail to
+// match, leaving every address un-enriched.
+func encodeQueryValue(s string) string {
+	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
+}
+
 func (c *Client) Find(ctx context.Context, address string) ([]AddressKladr, error) {
-	u := c.baseURL + "/parse?address=" + url.QueryEscape(address)
+	u := c.baseURL + "/parse?address=" + encodeQueryValue(address)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
