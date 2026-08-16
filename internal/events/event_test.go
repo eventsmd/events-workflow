@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"events-workflow/internal/domain"
+	"events-workflow/internal/store"
 )
 
 func TestSanitizeToken(t *testing.T) {
@@ -152,6 +153,19 @@ func TestUtilityEvent_JSON_EmptyHousesAndAddressesSerializeAsEmptyArrays(t *test
 	hs := string(hb)
 	if !strings.Contains(hs, `"houses":[]`) {
 		t.Fatalf("want houses:[] for empty non-nil slice, got %s", hs)
+	}
+}
+
+// Регрессия code review round 2: store.AddressEntity.Houses() must return a
+// non-nil empty slice (matching Java's new ArrayList<String>()) so an
+// EventAddress built from a house-less address still marshals as
+// "houses":[] rather than "houses":null.
+func TestUtilityEvent_JSON_HousesFromEmptyAddressEntitySerializesAsEmptyArray(t *testing.T) {
+	addr := EventAddress{Houses: (&store.AddressEntity{}).Houses()}
+	b, _ := json.Marshal(addr)
+	s := string(b)
+	if !strings.Contains(s, `"houses":[]`) {
+		t.Fatalf("want houses:[] from house-less AddressEntity, got %s", s)
 	}
 }
 

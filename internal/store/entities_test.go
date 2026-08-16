@@ -482,4 +482,11 @@ func TestHouses_Empty(t *testing.T) {
 	if len(got) != 0 {
 		t.Fatalf("got %v, want empty", got)
 	}
+	// Java's houses() starts with new ArrayList<String>() and never returns
+	// null; a nil Go slice here would marshal as JSON null downstream
+	// (events.EventAddress.Houses) instead of Java's [], breaking wire
+	// parity. Regression for code review round 2.
+	if got == nil {
+		t.Fatal("Houses() must return a non-nil empty slice, got nil (breaks JSON [] parity with Java ArrayList)")
+	}
 }

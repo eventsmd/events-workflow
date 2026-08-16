@@ -156,8 +156,12 @@ func AddressEntityFrom(a domain.Address, ref domain.MessageReference) *AddressEn
 }
 
 // Houses — список домов для события (порт houses() из MessageProcessActivity).
+// Java начинает с new ArrayList<String>() и никогда не возвращает null —
+// поэтому здесь non-nil пустой срез, а не var parts []string: nil vs []string{}
+// различает "поле отсутствует" и "поле есть, но пустое" при JSON-сериализации
+// EventAddress.Houses ниже по цепочке (events.UtilityEvent).
 func (e *AddressEntity) Houses() []string {
-	var parts []string
+	parts := []string{}
 	if s := deref(e.HouseNumbers); strings.TrimSpace(s) != "" {
 		parts = append(parts, strings.Split(s, ",")...)
 	}
