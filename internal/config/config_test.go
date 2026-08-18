@@ -1,6 +1,7 @@
 package config
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -10,7 +11,7 @@ func TestPostgresURL_JDBC(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "postgresql://u:p@db.host:5432/events"
+	want := "postgresql://u:p@db.host:5432/events?sslmode=prefer"
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
 	}
@@ -32,8 +33,56 @@ func TestPostgresURL_AlreadyPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != "postgres://a:b@h:5432/db" { // existing userinfo must not be overwritten
+	// existing userinfo must not be overwritten; sslmode still defaults to prefer
+	if got != "postgres://a:b@h:5432/db?sslmode=prefer" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+// TestPostgresURL_SSLMode covers the sslmode=prefer default added so
+// lib/pq (used by golang-migrate) matches pgjdbc's (and pgx's) default:
+// a DB_URL with no sslmode parameter — the exact form the Java service
+// uses — must not fail with "SSL is not enabled on the server".
+func TestPostgresURL_SSLMode(t *testing.T) {
+	cases := []struct {
+		name  string
+		dbURL string
+		want  string
+	}{
+		{
+			name:  "no sslmode gains prefer",
+			dbURL: "jdbc:postgresql://db:5432/events",
+			want:  "postgresql://u:p@db:5432/events?sslmode=prefer",
+		},
+		{
+			name:  "explicit sslmode is preserved, not duplicated",
+			dbURL: "jdbc:postgresql://db:5432/events?sslmode=require",
+			want:  "postgresql://u:p@db:5432/events?sslmode=require",
+		},
+		{
+			name:  "other params are kept and sslmode=prefer is added",
+			dbURL: "jdbc:postgresql://db:5432/events?application_name=x",
+			want:  "postgresql://u:p@db:5432/events?application_name=x&sslmode=prefer",
+		},
+		{
+			name:  "non-jdbc URL with explicit sslmode is untouched",
+			dbURL: "postgres://a:b@h:5432/db?sslmode=disable",
+			want:  "postgres://a:b@h:5432/db?sslmode=disable",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := PostgresURL(tc.dbURL, "u", "p")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+			if strings.Count(got, "sslmode=") > 1 {
+				t.Fatalf("sslmode duplicated: %q", got)
+			}
+		})
 	}
 }
 

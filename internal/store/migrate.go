@@ -5,9 +5,10 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"net/url"
 
 	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/database/pgx/v5"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/jackc/pgx/v5"
 )
@@ -49,7 +50,11 @@ func Migrate(pgURL string) error {
 	if err != nil {
 		return fmt.Errorf("migrations source: %w", err)
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", src, pgURL)
+	migrateURL, err := pgx5MigrateURL(pgURL)
+	if err != nil {
+		return fmt.Errorf("migrate init: %w", err)
+	}
+	m, err := migrate.NewWithSourceInstance("iofs", src, migrateURL)
 	if err != nil {
 		return fmt.Errorf("migrate init: %w", err)
 	}
@@ -70,6 +75,23 @@ func Migrate(pgURL string) error {
 		return fmt.Errorf("migrate up: %w", err)
 	}
 	return nil
+}
+
+// pgx5MigrateURL rewrites the scheme of a postgres/postgresql URL to pgx5,
+// selecting golang-migrate's pgx-based driver instead of its default
+// lib/pq-based one. lib/pq only accepts sslmode values of "require"
+// (default), "verify-full", "verify-ca", and "disable" — it rejects
+// "prefer" outright — while pgx (used for the runtime pool too) supports
+// "prefer" and defaults to it, matching pgjdbc's default. Using the pgx5
+// driver here keeps migrate's SSL behavior consistent with the rest of the
+// service instead of forcing a value lib/pq can't accept.
+func pgx5MigrateURL(pgURL string) (string, error) {
+	u, err := url.Parse(pgURL)
+	if err != nil {
+		return "", fmt.Errorf("parse database URL: %w", err)
+	}
+	u.Scheme = "pgx5"
+	return u.String(), nil
 }
 
 // legacyBaselineVersion probes which Flyway-era tables actually exist and

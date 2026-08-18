@@ -68,6 +68,12 @@ func mustDuration(s string) time.Duration {
 // PostgresURL converts jdbc:postgresql://… (Java-version format) to
 // postgresql://user:pass@…, suitable for pgx and golang-migrate.
 // Already-specified userinfo in the URL takes precedence over user/pass.
+//
+// When the URL has no sslmode parameter, sslmode=prefer is added explicitly.
+// The Java service (pgjdbc) and pgx both default to "prefer" (try SSL, fall
+// back to plaintext), but golang-migrate's postgres driver uses lib/pq,
+// whose default is "require" — without this, a drop-in DB_URL that works
+// against a non-SSL Postgres under Java fails to start under Go.
 func PostgresURL(dbURL, user, pass string) (string, error) {
 	s := strings.TrimPrefix(dbURL, "jdbc:")
 	u, err := url.Parse(s)
@@ -76,6 +82,11 @@ func PostgresURL(dbURL, user, pass string) (string, error) {
 	}
 	if u.User == nil {
 		u.User = url.UserPassword(user, pass)
+	}
+	q := u.Query()
+	if q.Get("sslmode") == "" {
+		q.Set("sslmode", "prefer")
+		u.RawQuery = q.Encode()
 	}
 	return u.String(), nil
 }

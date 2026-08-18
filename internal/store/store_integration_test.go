@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
+	"events-workflow/internal/config"
 	"events-workflow/internal/domain"
 )
 
@@ -130,6 +132,55 @@ func TestMigrateAndRepos(t *testing.T) {
 	}
 }
 
+// TestMigrate_NoSSLModeParamDefaultsToPrefer is a regression test for the
+// production deployment bug: DB_URL=jdbc:postgresql://host:5432/events
+// (no sslmode parameter — the exact form the Java service uses) must still
+// connect. config.PostgresURL defaults a missing sslmode to "prefer"
+// (matching pgjdbc/pgx) instead of leaving lib/pq's default of "require" in
+// effect. The testcontainer here has no SSL configured, so "prefer" must
+// fall back to plaintext — exactly the regression being guarded against.
+func TestMigrate_NoSSLModeParamDefaultsToPrefer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	ctx := context.Background()
+	pg, err := tcpostgres.Run(ctx, "postgres:16-alpine",
+		tcpostgres.WithDatabase("events"),
+		tcpostgres.WithUsername("test"),
+		tcpostgres.WithPassword("test"),
+		tcpostgres.BasicWaitStrategies(),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { testcontainers.TerminateContainer(pg) })
+
+	rawURL, err := pg.ConnectionString(ctx) // no sslmode parameter at all
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	url, err := config.PostgresURL(rawURL, "test", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(url, "sslmode=prefer") {
+		t.Fatalf("expected sslmode=prefer to be added, got %q", url)
+	}
+
+	if err := Migrate(url); err != nil {
+		t.Fatalf("Migrate with no explicit sslmode: %v", err)
+	}
+	pool, err := NewPool(ctx, url)
+	if err != nil {
+		t.Fatalf("NewPool with no explicit sslmode: %v", err)
+	}
+	defer pool.Close()
+	if err := pool.Ping(ctx); err != nil {
+		t.Fatalf("ping: %v", err)
+	}
+}
+
 func TestMigrate_BaselineExistingFlywayDB(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
@@ -180,7 +231,11 @@ func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, err := migrate.NewWithSourceInstance("iofs", src, url)
+	migrateURL, err := pgx5MigrateURL(url) // same scheme rewrite Migrate() performs
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := migrate.NewWithSourceInstance("iofs", src, migrateURL)
 	if err != nil {
 		t.Fatal(err)
 	}
