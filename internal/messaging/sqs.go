@@ -15,6 +15,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/aws/aws-sdk-go-v2/service/sqs/types"
+	"github.com/google/uuid"
 )
 
 // javaType — value of the message attribute JavaType, which Spring Cloud AWS
@@ -44,8 +45,18 @@ type SQSSender struct {
 	client    *sqs.Client
 	queueName string
 
-	mu       sync.Mutex
-	queueURL string
+	mu    sync.Mutex
+	queue *queueInfo
+}
+
+// queueInfo — what has to be known about the destination before the first
+// send, resolved once and cached.
+type queueInfo struct {
+	url  string
+	fifo bool
+	// contentBasedDedup reports whether the queue derives deduplication ids
+	// from the message body, in which case no explicit id is sent.
+	contentBasedDedup bool
 }
 
 func NewSQSSender(ctx context.Context, queueName string) (*SQSSender, error) {
@@ -67,29 +78,54 @@ func NewSQSSender(ctx context.Context, queueName string) (*SQSSender, error) {
 	return &SQSSender{client: sqs.NewFromConfig(cfg), queueName: queueName}, nil
 }
 
-func (s *SQSSender) resolveQueueURL(ctx context.Context) (string, error) {
+// resolveQueue resolves the destination once and caches it.
+//
+// FIFO handling mirrors Spring Cloud AWS's SqsTemplate, which Java used
+// without configuring anything: FifoUtils.isFifo treats a ".fifo" suffix as
+// the marker, and the template then fills in the headers SQS demands. Its
+// default deduplication mode (TemplateContentBasedDeduplication.AUTO) reads
+// the queue's own ContentBasedDeduplication attribute to decide whether an
+// explicit deduplication id is needed, which is why that attribute is read
+// here too.
+func (s *SQSSender) resolveQueue(ctx context.Context) (queueInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.queue != nil {
+		return *s.queue, nil
+	}
+
 	// Java accepted a queue name OR a full URL/ARN (SqsTemplate resolves
 	// either). Mirror that: a value that already looks like a URL is used
 	// verbatim instead of being passed to GetQueueUrl as a name.
-	if strings.HasPrefix(s.queueName, "http://") || strings.HasPrefix(s.queueName, "https://") {
-		return s.queueName, nil
+	url := s.queueName
+	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
+		out, err := s.client.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
+			QueueName: aws.String(s.queueName)})
+		if err != nil {
+			return queueInfo{}, fmt.Errorf("resolve queue %q: %w", s.queueName, err)
+		}
+		url = *out.QueueUrl
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.queueURL != "" {
-		return s.queueURL, nil
+
+	q := queueInfo{url: url, fifo: strings.HasSuffix(url, ".fifo")}
+	if q.fifo {
+		out, err := s.client.GetQueueAttributes(ctx, &sqs.GetQueueAttributesInput{
+			QueueUrl: aws.String(url),
+			AttributeNames: []types.QueueAttributeName{
+				types.QueueAttributeNameContentBasedDeduplication},
+		})
+		if err != nil {
+			return queueInfo{}, fmt.Errorf("queue attributes %q: %w", s.queueName, err)
+		}
+		q.contentBasedDedup =
+			out.Attributes[string(types.QueueAttributeNameContentBasedDeduplication)] == "true"
 	}
-	out, err := s.client.GetQueueUrl(ctx, &sqs.GetQueueUrlInput{
-		QueueName: aws.String(s.queueName)})
-	if err != nil {
-		return "", fmt.Errorf("resolve queue %q: %w", s.queueName, err)
-	}
-	s.queueURL = *out.QueueUrl
-	return s.queueURL, nil
+	s.queue = &q
+	return q, nil
 }
 
 func (s *SQSSender) Send(ctx context.Context, m MessageToSend) error {
-	queueURL, err := s.resolveQueueURL(ctx)
+	q, err := s.resolveQueue(ctx)
 	if err != nil {
 		return err
 	}
@@ -97,8 +133,8 @@ func (s *SQSSender) Send(ctx context.Context, m MessageToSend) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.client.SendMessage(ctx, &sqs.SendMessageInput{
-		QueueUrl:    aws.String(queueURL),
+	in := &sqs.SendMessageInput{
+		QueueUrl:    aws.String(q.url),
 		MessageBody: aws.String(string(body)),
 		MessageAttributes: map[string]types.MessageAttributeValue{
 			"contentType": {DataType: aws.String("String"),
@@ -106,6 +142,17 @@ func (s *SQSSender) Send(ctx context.Context, m MessageToSend) error {
 			"JavaType": {DataType: aws.String("String"),
 				StringValue: aws.String(javaType)},
 		},
-	})
+	}
+	if q.fifo {
+		// A fresh group id per message, exactly as SqsTemplate did: it makes
+		// every message its own FIFO group, so nothing is serialized behind
+		// anything else. Notifications have no ordering requirement between
+		// recipients, and Java behaved this way in production.
+		in.MessageGroupId = aws.String(uuid.NewString())
+		if !q.contentBasedDedup {
+			in.MessageDeduplicationId = aws.String(uuid.NewString())
+		}
+	}
+	_, err = s.client.SendMessage(ctx, in)
 	return err
 }

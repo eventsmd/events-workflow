@@ -39,22 +39,26 @@ func TestNewSQSSender_DefaultsRegionAndCredentials(t *testing.T) {
 	}
 }
 
-// TestSQSSender_ResolveQueueURL_PassesThroughFullURL — Java accepted a
+// TestSQSSender_ResolveQueue_PassesThroughFullURL — Java accepted a
 // queue name OR a URL/ARN; a value that already looks like a URL must be
 // used verbatim instead of round-tripping through GetQueueUrl (which would
-// treat it as an (invalid) queue name).
-func TestSQSSender_ResolveQueueURL_PassesThroughFullURL(t *testing.T) {
+// treat it as an (invalid) queue name). A non-FIFO destination needs no
+// further lookups, so this runs without a client.
+func TestSQSSender_ResolveQueue_PassesThroughFullURL(t *testing.T) {
 	for _, want := range []string{
 		"https://sqs.us-east-1.amazonaws.com/123456789012/events-notifications",
 		"http://localhost:4566/000000000000/events-notifications",
 	} {
 		s := &SQSSender{queueName: want}
-		got, err := s.resolveQueueURL(context.Background())
+		got, err := s.resolveQueue(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != want {
-			t.Fatalf("got %q, want %q", got, want)
+		if got.url != want {
+			t.Fatalf("got %q, want %q", got.url, want)
+		}
+		if got.fifo {
+			t.Fatalf("%q must not be treated as a FIFO queue", want)
 		}
 	}
 }
