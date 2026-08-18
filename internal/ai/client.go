@@ -23,17 +23,23 @@ const model = "gpt-5-mini"
 // 3-attempt activity retry policy is untouched and still covers anything
 // that outlasts this budget.
 //
-// The backoff alone isn't the whole budget, though: each of the 4 attempts
-// can itself take up to requestTimeout (the http.Client's Timeout, below).
-// Worst case is therefore 4*requestTimeout + 62s of backoff, and that must
-// fit comfortably inside 300s. With requestTimeout = 45s: 4*45s + 62s =
-// 242s, leaving ~58s of margin inside the 300s StartToCloseTimeout for
-// scheduling/queueing overhead before Temporal kills the activity mid-retry.
+// There is deliberately no fixed per-request timeout. Java configured none
+// (Spring's RestClient defaults to no read timeout), so a slow gpt-5-mini
+// call simply ran until Temporal killed the activity at 300s. A fixed cap
+// here caused the opposite: every call died at 45s with "Client.Timeout
+// exceeded while awaiting headers", and since a timeout is not a retryable
+// status, the activity failed immediately. Each attempt now inherits the
+// activity's own deadline instead — see attemptCtx.
 const (
 	defaultRetryMaxAttempts = 4
 	defaultRetryInitialWait = 2 * time.Second
 	defaultRetryMultiplier  = 5.0
-	requestTimeout          = 45 * time.Second
+
+	// defaultMaxRequestTimeout only applies when the caller's context has
+	// no deadline of its own (tests, or any use outside a Temporal
+	// activity). Inside an activity the context deadline is always the
+	// tighter, and more meaningful, bound.
+	defaultMaxRequestTimeout = 240 * time.Second
 )
 
 type Client struct {
@@ -41,17 +47,21 @@ type Client struct {
 	apiKey  string
 	http    *http.Client
 
-	retryMaxAttempts int
-	retryInitialWait time.Duration
-	retryMultiplier  float64
+	retryMaxAttempts  int
+	retryInitialWait  time.Duration
+	retryMultiplier   float64
+	maxRequestTimeout time.Duration
 }
 
 func NewClient(baseURL, apiKey string) *Client {
 	return &Client{baseURL: baseURL, apiKey: apiKey,
-		http:             &http.Client{Timeout: requestTimeout},
-		retryMaxAttempts: defaultRetryMaxAttempts,
-		retryInitialWait: defaultRetryInitialWait,
-		retryMultiplier:  defaultRetryMultiplier,
+		// No http.Client.Timeout: the per-attempt deadline comes from the
+		// context (attemptCtx), so a slow call can use the activity budget.
+		http:              &http.Client{},
+		retryMaxAttempts:  defaultRetryMaxAttempts,
+		retryInitialWait:  defaultRetryInitialWait,
+		retryMultiplier:   defaultRetryMultiplier,
+		maxRequestTimeout: defaultMaxRequestTimeout,
 	}
 }
 
@@ -110,11 +120,26 @@ func (c *Client) Chat(ctx context.Context, prompt string) (string, error) {
 	return "", lastErr
 }
 
+// attemptCtx bounds one HTTP attempt. A Temporal activity context already
+// carries a deadline derived from StartToCloseTimeout, and that is the
+// budget the call is genuinely allowed to use, so it is passed through
+// untouched. Only a deadline-less context gets the maxRequestTimeout
+// safety net, so a stuck request cannot hang forever.
+func (c *Client) attemptCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.maxRequestTimeout)
+}
+
 // doChat performs one HTTP attempt. retryable reports whether the failure
 // is a 429/5xx worth retrying (per Spring AI's default retry predicate);
 // any other error (network failure, malformed body, 4xx other than 429) is
 // returned as-is and not retried.
 func (c *Client) doChat(ctx context.Context, body []byte) (content string, retryable bool, err error) {
+	ctx, cancel := c.attemptCtx(ctx)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		c.baseURL+"/v1/chat/completions", bytes.NewReader(body))
 	if err != nil {

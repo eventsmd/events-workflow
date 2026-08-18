@@ -9,45 +9,72 @@ import (
 	"time"
 )
 
-// TestRequestTimeout_FitsInsideActivityBudget — regression test for the
-// retry budget exceeding Temporal's 5-minute StartToCloseTimeout
-// (internal/workflows/workflow.go). Worst case is
-// retryMaxAttempts*requestTimeout (every attempt maxing out its HTTP
-// timeout) plus the backoff between attempts
-// (retryInitialWait * (1 + multiplier + multiplier^2) = 2s+10s+50s = 62s
-// for the default 4 attempts / ×5 multiplier). That must leave real margin
-// inside 300s, not just barely fit, or Temporal kills the activity
-// mid-retry.
-func TestRequestTimeout_FitsInsideActivityBudget(t *testing.T) {
+// TestRetryBackoff_FitsInsideActivityBudget — the in-client retry backoff
+// (2s+10s+50s = 62s for the default 4 attempts / x5 multiplier) runs INSIDE
+// one Temporal activity attempt, so it must stay small relative to the
+// 5-minute StartToCloseTimeout (internal/workflows/workflow.go). The
+// attempts themselves are no longer part of this arithmetic: each one is
+// bounded by the activity context deadline (see attemptCtx).
+func TestRetryBackoff_FitsInsideActivityBudget(t *testing.T) {
 	c := NewClient("http://example.invalid", "key")
-	if c.http.Timeout != requestTimeout {
-		t.Fatalf("NewClient must configure http.Client.Timeout = requestTimeout, got %v", c.http.Timeout)
-	}
 
 	const activityBudget = 5 * time.Minute
-	const marginFloor = 30 * time.Second // must leave at least this much slack
-
 	backoff := c.retryInitialWait
 	var totalBackoff time.Duration
 	for i := 1; i < c.retryMaxAttempts; i++ {
 		totalBackoff += backoff
 		backoff = time.Duration(float64(backoff) * c.retryMultiplier)
 	}
-	worstCase := time.Duration(c.retryMaxAttempts)*requestTimeout + totalBackoff
-
-	if worstCase >= activityBudget {
-		t.Fatalf("worst case %v does not fit inside the %v activity budget", worstCase, activityBudget)
-	}
-	if margin := activityBudget - worstCase; margin < marginFloor {
-		t.Fatalf("worst case %v leaves only %v of margin inside %v, want at least %v",
-			worstCase, margin, activityBudget, marginFloor)
+	if totalBackoff > activityBudget/4 {
+		t.Fatalf("retry backoff %v is too large a share of the %v activity budget",
+			totalBackoff, activityBudget)
 	}
 }
 
-// TestClient_Chat_RespectsPerRequestTimeout — verifies that a single HTTP
-// attempt is actually bounded by http.Client.Timeout (not the old 120s),
-// so a stuck request can't by itself consume the whole retry budget.
-func TestClient_Chat_RespectsPerRequestTimeout(t *testing.T) {
+// TestNewClient_HasNoFixedRequestTimeout — regression test for the
+// production failure "Post .../chat/completions: context deadline exceeded
+// (Client.Timeout exceeded while awaiting headers)". A fixed
+// http.Client.Timeout caps every call regardless of how much activity
+// budget is left; Java (Spring RestClient, no read timeout configured)
+// had no such cap and let a slow gpt-5-mini call run until Temporal's
+// StartToCloseTimeout. The deadline must come from the context instead.
+func TestNewClient_HasNoFixedRequestTimeout(t *testing.T) {
+	if to := NewClient("http://example.invalid", "key").http.Timeout; to != 0 {
+		t.Fatalf("http.Client.Timeout = %v, want 0 so the context deadline governs", to)
+	}
+}
+
+// TestClient_Chat_ContextDeadlineOutranksSafetyNet — when the caller (a
+// Temporal activity) supplies a deadline, that deadline alone bounds the
+// attempt. The safety net must not shorten a call the activity budget
+// still has room for.
+func TestClient_Chat_ContextDeadlineOutranksSafetyNet(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond) // longer than the safety net below
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer srv.Close()
+
+	c := NewClient(srv.URL, "test-key")
+	c.maxRequestTimeout = 50 * time.Millisecond // would abort the call if it applied
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	got, err := c.Chat(ctx, "hi")
+	if err != nil {
+		t.Fatalf("call aborted despite ample context budget: %v", err)
+	}
+	if got != "ok" {
+		t.Fatalf("got %q", got)
+	}
+}
+
+// TestClient_Chat_SafetyNetBoundsDeadlinelessContext — with no deadline on
+// the context there is no activity budget to inherit, so maxRequestTimeout
+// must still stop a stuck request from hanging forever.
+func TestClient_Chat_SafetyNetBoundsDeadlinelessContext(t *testing.T) {
 	block := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-block // never responds within the test's lifetime
@@ -57,11 +84,12 @@ func TestClient_Chat_RespectsPerRequestTimeout(t *testing.T) {
 	defer close(block)
 
 	c := NewClient(srv.URL, "test-key")
-	c.retryMaxAttempts = 1                 // isolate a single attempt's timeout behavior
-	c.http.Timeout = 50 * time.Millisecond // fast for the test; production uses requestTimeout
+	c.retryMaxAttempts = 1                      // isolate a single attempt's timeout behavior
+	c.maxRequestTimeout = 50 * time.Millisecond // fast for the test
 
 	start := time.Now()
-	_, err := c.Chat(context.Background(), "hi")
+	_, err := c.Chat(context.Background(), "hi") // no deadline
+
 	elapsed := time.Since(start)
 
 	if err == nil {
