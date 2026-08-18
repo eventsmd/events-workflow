@@ -448,6 +448,38 @@ func TestStrPtr(t *testing.T) {
 	}
 }
 
+// TestHouses_TrailingEmptyFieldDropped — Java's String.split(",") drops
+// trailing empty fields ("1,".split(",") == ["1"]), but strings.Split keeps
+// them (["1", ""]). This happens for real when the model returns
+// "numbers":["1",""]. Without the fix, Houses() would include a spurious
+// "" element (breaking the NATS houses array) and FormatHouses() would
+// render a trailing ", ".
+func TestHouses_TrailingEmptyFieldDropped(t *testing.T) {
+	e := &AddressEntity{HouseNumbers: StrPtr("1,")}
+	got := e.Houses()
+	want := []string{"1"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("Houses() = %v, want %v", got, want)
+	}
+	if formatted := e.FormatHouses(); formatted != "д. 1" {
+		t.Fatalf("FormatHouses() = %q, want %q", formatted, "д. 1")
+	}
+}
+
+// TestHouses_TrailingEmptyRangeDropped — same as above but for the ranges
+// (";") path.
+func TestHouses_TrailingEmptyRangeDropped(t *testing.T) {
+	e := &AddressEntity{HouseRanges: StrPtr("1-10;")}
+	got := e.Houses()
+	want := []string{"1-10"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("Houses() = %v, want %v", got, want)
+	}
+	if formatted := e.FormatHouses(); formatted != "д. 1-10" {
+		t.Fatalf("FormatHouses() = %q, want %q", formatted, "д. 1-10")
+	}
+}
+
 func TestHouses_OnlyNumbers(t *testing.T) {
 	e := &AddressEntity{HouseNumbers: StrPtr("1,2,3")}
 	got := e.Houses()

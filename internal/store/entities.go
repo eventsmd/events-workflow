@@ -163,12 +163,29 @@ func AddressEntityFrom(a domain.Address, ref domain.MessageReference) *AddressEn
 func (e *AddressEntity) Houses() []string {
 	parts := []string{}
 	if s := deref(e.HouseNumbers); strings.TrimSpace(s) != "" {
-		parts = append(parts, strings.Split(s, ",")...)
+		parts = append(parts, splitNonEmpty(s, ",")...)
 	}
 	if s := deref(e.HouseRanges); strings.TrimSpace(s) != "" {
-		parts = append(parts, strings.Split(s, ";")...)
+		parts = append(parts, splitNonEmpty(s, ";")...)
 	}
 	return parts
+}
+
+// splitNonEmpty splits s on sep and drops empty fields, matching Java's
+// String.split(sep) which — unlike strings.Split — omits trailing empty
+// strings (and any other empty tokens). Without this, a stored column like
+// "1," (e.g. from a model response of ["1",""]) would split to ["1", ""]
+// in Go but ["1"] in Java, leaving a trailing ", " in notification text
+// and an empty element in the NATS houses array.
+func splitNonEmpty(s, sep string) []string {
+	raw := strings.Split(s, sep)
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		if v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // FormatHouses — "д. 1, 2, 10-20" for notification text (port formatHouses()).

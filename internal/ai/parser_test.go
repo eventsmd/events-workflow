@@ -64,6 +64,25 @@ func TestParse_ValidJSON_AssignsAddressIDs(t *testing.T) {
 	}
 }
 
+// TestParse_TrailingContentAfterJSON_Ignored — Java's Jackson readValue does
+// not enable FAIL_ON_TRAILING_TOKENS, so text the model appends after the
+// JSON object (e.g. "Note: times are approximate.") is silently ignored.
+// Go's json.Unmarshal would instead fail with "invalid character ... after
+// top-level value", which previously burned all 3 Temporal activity attempts
+// on an otherwise-parseable response.
+func TestParse_TrailingContentAfterJSON_Ignored(t *testing.T) {
+	c := fakeOpenAI(t, "```json\n{\"organization\":\"Водоканал\",\"short_description\":\"d\",\"event\":\"shutdown\",\"event_start\":\"2025-12-02T09:00\",\"addresses\":[{\"city\":\"Тирасполь\",\"street\":\"Ленина\",\"street_type\":\"ул.\"}]}\n```\nNote: times are approximate.", nil)
+	p := NewMessageParser(c)
+	got, err := p.Parse(context.Background(),
+		domain.LocalDateTime{Time: time.Date(2025, 12, 1, 22, 50, 0, 0, time.UTC)}, "msg")
+	if err != nil {
+		t.Fatalf("expected trailing content to be ignored, got error: %v", err)
+	}
+	if got.Event != "shutdown" || got.Organization != "Водоканал" {
+		t.Fatalf("%+v", got)
+	}
+}
+
 func TestParse_NullResponse(t *testing.T) {
 	p := NewMessageParser(fakeOpenAI(t, "null", nil))
 	got, err := p.Parse(context.Background(), domain.LocalDateTime{}, "мусор")

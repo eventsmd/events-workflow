@@ -85,6 +85,50 @@ func TestPublisher_PublishAndDedup(t *testing.T) {
 	}
 }
 
+// TestPublisher_EnsureConnected_ClosesOrphanedPreviousConn — regression test
+// for a reconnect overwriting p.conn without closing the previous
+// connection. When ensureConnected decides to reconnect (e.g. because js
+// was reset) while the old *nats.Conn is still alive, it must Close() the
+// old connection before replacing it; otherwise the old conn keeps
+// auto-reconnecting in the background (nats.go retries up to 60 times at
+// 2s intervals by default), accumulating orphaned connections and
+// goroutines across repeated NATS blips.
+func TestPublisher_EnsureConnected_ClosesOrphanedPreviousConn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	ctx := context.Background()
+	url := startNATS(t)
+
+	p := NewPublisher(PublisherConfig{
+		URL: url, Stream: "UTILITY", SubjectPrefix: "pmr.utility.event",
+		StreamMaxAge: 24 * time.Hour,
+	})
+	defer p.Close()
+
+	if _, err := p.ensureConnected(ctx); err != nil {
+		t.Fatal(err)
+	}
+	oldConn := p.conn
+	if oldConn == nil || !oldConn.IsConnected() {
+		t.Fatal("expected an established connection after first ensureConnected")
+	}
+
+	// Force the reconnect branch (as if js needed to be recreated) while
+	// the old connection is still alive — the scenario the bug covered.
+	p.js = nil
+	if _, err := p.ensureConnected(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	if p.conn == oldConn {
+		t.Fatal("expected a new connection to be assigned")
+	}
+	if oldConn.IsConnected() {
+		t.Fatal("expected the previous connection to be closed on reconnect, but it is still connected")
+	}
+}
+
 func TestPublisher_EmptyURLSkips(t *testing.T) {
 	p := NewPublisher(PublisherConfig{}) // URL empty — must not panic/connect
 	p.Publish(context.Background(), UtilityEvent{IncidentID: "x"})

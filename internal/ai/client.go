@@ -18,14 +18,22 @@ const model = "gpt-5-mini"
 // Retry defaults — Spring AI's RetryUtils.DEFAULT_RETRY_TEMPLATE retried
 // 429/5xx responses up to 10 attempts (2s initial backoff, ×5 multiplier)
 // INSIDE a single Temporal activity attempt. We cap attempts lower than
-// Java's 10 (4) so the worst case (2s+10s+50s ≈ 62s of backoff) stays well
-// inside the 5-minute StartToCloseTimeout instead of eating most of it —
-// Temporal's own 3-attempt activity retry policy is untouched and still
-// covers anything that outlasts this budget.
+// Java's 10 (4) so the backoff between them (2s+10s+50s = 62s) stays small
+// relative to the 5-minute (300s) StartToCloseTimeout — Temporal's own
+// 3-attempt activity retry policy is untouched and still covers anything
+// that outlasts this budget.
+//
+// The backoff alone isn't the whole budget, though: each of the 4 attempts
+// can itself take up to requestTimeout (the http.Client's Timeout, below).
+// Worst case is therefore 4*requestTimeout + 62s of backoff, and that must
+// fit comfortably inside 300s. With requestTimeout = 45s: 4*45s + 62s =
+// 242s, leaving ~58s of margin inside the 300s StartToCloseTimeout for
+// scheduling/queueing overhead before Temporal kills the activity mid-retry.
 const (
 	defaultRetryMaxAttempts = 4
 	defaultRetryInitialWait = 2 * time.Second
 	defaultRetryMultiplier  = 5.0
+	requestTimeout          = 45 * time.Second
 )
 
 type Client struct {
@@ -40,7 +48,7 @@ type Client struct {
 
 func NewClient(baseURL, apiKey string) *Client {
 	return &Client{baseURL: baseURL, apiKey: apiKey,
-		http:             &http.Client{Timeout: 120 * time.Second},
+		http:             &http.Client{Timeout: requestTimeout},
 		retryMaxAttempts: defaultRetryMaxAttempts,
 		retryInitialWait: defaultRetryInitialWait,
 		retryMultiplier:  defaultRetryMultiplier,

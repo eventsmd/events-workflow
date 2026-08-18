@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
 
@@ -31,8 +32,14 @@ func (p *MessageParser) Parse(ctx context.Context, t domain.LocalDateTime, messa
 		return nil, err
 	}
 	cleaned := codeFence.ReplaceAllString(raw, "")
+	// Java's ObjectMapper.readValue does not enable FAIL_ON_TRAILING_TOKENS,
+	// so any content after the first JSON value (e.g. a trailing sentence
+	// the model appends after the fenced object) is silently ignored.
+	// json.Unmarshal has no equivalent leniency and errors on trailing
+	// data, so decode with a Decoder and read only the first JSON value.
 	var tr *domain.MessageTranscription
-	if err := json.Unmarshal([]byte(cleaned), &tr); err != nil {
+	dec := json.NewDecoder(strings.NewReader(cleaned))
+	if err := dec.Decode(&tr); err != nil {
 		return nil, fmt.Errorf("parse transcription %q: %w", cleaned, err)
 	}
 	if tr == nil {

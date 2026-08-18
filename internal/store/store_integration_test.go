@@ -212,6 +212,58 @@ func TestMigrate_BaselineAfterCrashWindow(t *testing.T) {
 	}
 }
 
+// TestMigrate_BaselineOnlyTelegramMessages_AppliesSubscriptions covers a
+// database whose Flyway history stopped at the first migration (older
+// dump, DB created before the subscriptions migration was added, or a
+// failed second script): telegram_messages exists but subscriptions does
+// not, and schema_migrations does not exist yet either. Baselining
+// straight to baselineVersion (as if both tables existed) would mark the
+// subscriptions migration applied without ever creating its table, so
+// every Notify would fail forever with "relation \"subscriptions\" does
+// not exist". Migrate must instead baseline to the lower version so Up()
+// goes on to actually create subscriptions.
+func TestMigrate_BaselineOnlyTelegramMessages_AppliesSubscriptions(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	ctx := context.Background()
+	url := startPostgres(t)
+	pool, err := NewPoolNoHstore(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlBytes, err := migrationsFS.ReadFile("migrations/202512012250_create_telegram_messages.up.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, string(sqlBytes)); err != nil {
+		t.Fatal(err)
+	}
+	pool.Close()
+
+	if err := Migrate(url); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	pool2, err := NewPoolNoHstore(ctx, url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool2.Close()
+	var hasSubscriptions bool
+	if err := pool2.QueryRow(ctx, `SELECT to_regclass('subscriptions') IS NOT NULL`).Scan(&hasSubscriptions); err != nil {
+		t.Fatal(err)
+	}
+	if !hasSubscriptions {
+		t.Fatal("expected subscriptions table to exist after Migrate")
+	}
+
+	// A subsequent Migrate call must be a no-op (idempotent), not error.
+	if err := Migrate(url); err != nil {
+		t.Fatalf("second Migrate call: %v", err)
+	}
+}
+
 // TestStore_WithConn_RespectsCallerDeadline — regression test for pool
 // starvation blocking an activity for the full 5-minute
 // StartToCloseTimeout (see acquireTimeout in store.go): with the pool's

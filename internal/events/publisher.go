@@ -90,6 +90,14 @@ func (p *Publisher) ensureConnected(ctx context.Context) (jetstream.JetStream, e
 		conn.Close()
 		return nil, err
 	}
+	// The previous connection (if any) may still be alive and
+	// auto-reconnecting in the background (nats.go retries up to 60 times
+	// at 2s intervals by default) even though IsConnected() reported false
+	// here — e.g. during a transient blip. Close it before overwriting so
+	// repeated blips don't accumulate orphaned connections and goroutines.
+	if p.conn != nil {
+		p.conn.Close()
+	}
 	p.conn, p.js = conn, js
 	return js, nil
 }

@@ -18,6 +18,12 @@ var migrationsFS embed.FS
 // baselineVersion — version of the latest migration applied by Flyway in production.
 const baselineVersion = 202512030730
 
+// telegramMessagesVersion — version of the migration that only creates
+// telegram_messages, i.e. the state of a database that stopped at the
+// first Flyway script (older dump, DB created before the subscriptions
+// migration was added, or a failed second script).
+const telegramMessagesVersion = 202512012250
+
 // Migrate executes migrations. For a database previously migrated by Flyway
 // (legacy tables exist), it performs baseline via Force: marks migrations
 // as applied without executing SQL. flyway_schema_history is not touched.
@@ -34,7 +40,7 @@ const baselineVersion = 202512030730
 // both for "table does not exist" and "table is empty" — both cases correctly
 // map to "baseline is needed" if legacy tables are present.
 func Migrate(pgURL string) error {
-	hasLegacy, err := legacyTablesPresent(pgURL)
+	legacyVersion, err := legacyBaselineVersion(pgURL)
 	if err != nil {
 		return err
 	}
@@ -53,10 +59,10 @@ func Migrate(pgURL string) error {
 	if verErr != nil && !errors.Is(verErr, migrate.ErrNilVersion) {
 		return fmt.Errorf("migrate version: %w", verErr)
 	}
-	needBaseline := hasLegacy && errors.Is(verErr, migrate.ErrNilVersion)
+	needBaseline := legacyVersion != 0 && errors.Is(verErr, migrate.ErrNilVersion)
 
 	if needBaseline {
-		if err := m.Force(baselineVersion); err != nil {
+		if err := m.Force(legacyVersion); err != nil {
 			return fmt.Errorf("baseline: %w", err)
 		}
 	}
@@ -66,18 +72,38 @@ func Migrate(pgURL string) error {
 	return nil
 }
 
-func legacyTablesPresent(pgURL string) (bool, error) {
+// legacyBaselineVersion probes which Flyway-era tables actually exist and
+// returns the version to Force() the baseline to, so it always matches the
+// newest migration whose objects are really present — never higher.
+// A database whose Flyway history stopped at telegramMessagesVersion (older
+// dump, DB created before the subscriptions migration was added, or a
+// failed second script) has telegram_messages but not subscriptions:
+// baselining straight to baselineVersion would mark the subscriptions
+// migration applied even though its table doesn't exist, so Up() would
+// return ErrNoChange and every subsequent query against subscriptions
+// would fail with "relation \"subscriptions\" does not exist", forever.
+// Returns 0 when neither legacy table exists (no baseline needed).
+func legacyBaselineVersion(pgURL string) (int, error) {
 	ctx := context.Background()
 	conn, err := pgx.Connect(ctx, pgURL)
 	if err != nil {
-		return false, fmt.Errorf("connect for baseline check: %w", err)
+		return 0, fmt.Errorf("connect for baseline check: %w", err)
 	}
 	defer conn.Close(ctx)
-	var hasLegacy bool
+	var hasTelegramMessages, hasSubscriptions bool
 	err = conn.QueryRow(ctx,
-		`SELECT to_regclass('telegram_messages') IS NOT NULL`).Scan(&hasLegacy)
+		`SELECT to_regclass('telegram_messages') IS NOT NULL,
+		        to_regclass('subscriptions') IS NOT NULL`).
+		Scan(&hasTelegramMessages, &hasSubscriptions)
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	return hasLegacy, nil
+	switch {
+	case hasTelegramMessages && hasSubscriptions:
+		return baselineVersion, nil
+	case hasTelegramMessages:
+		return telegramMessagesVersion, nil
+	default:
+		return 0, nil
+	}
 }
