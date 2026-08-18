@@ -26,6 +26,22 @@ func parseLocal(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("cannot parse local datetime %q", s)
 }
 
+// stripUTCSuffix drops a trailing "Z" the way Jackson's
+// LocalDateTimeDeserializer does on its default formatter: a lone 'Z' is
+// treated as a UTC indicator and the rest is read as a local date-time.
+// Producers send TelegramMessage.date as "2026-08-18T12:09:05Z", so
+// without this the whole workflow input fails to decode.
+//
+// The guards mirror Jackson exactly: only an uppercase 'Z', only one of
+// them, and only on a date-time (a 'T' at index 10). A real offset such as
+// "+02:00" stays an error rather than being silently read as local time.
+func stripUTCSuffix(s string) string {
+	if len(s) > 10 && s[10] == 'T' && strings.HasSuffix(s, "Z") {
+		return s[:len(s)-1]
+	}
+	return s
+}
+
 // LocalDateTime — java.time.LocalDateTime: without timezone; on serialization
 // seconds are omitted if they are zero (Jackson ISO_LOCAL_DATE_TIME behavior).
 type LocalDateTime struct{ time.Time }
@@ -46,7 +62,7 @@ func (t *LocalDateTime) UnmarshalJSON(b []byte) error {
 	if s == "null" || s == "" {
 		return nil
 	}
-	parsed, err := parseLocal(s)
+	parsed, err := parseLocal(stripUTCSuffix(s))
 	if err != nil {
 		return err
 	}

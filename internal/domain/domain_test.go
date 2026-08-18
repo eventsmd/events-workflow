@@ -97,3 +97,23 @@ func TestMessageTranscription_EventStart_InvalidNonEmpty_Errors(t *testing.T) {
 		t.Fatal("expected error for malformed event_start")
 	}
 }
+
+// TestTelegramMessage_DecodesProductionPayload — the exact shape that failed
+// to decode in production ("unable to decode the workflow function input
+// payload ... cannot parse local datetime \"2026-08-18T12:09:05Z\"").
+func TestTelegramMessage_DecodesProductionPayload(t *testing.T) {
+	const payload = `{"id":123,"chat_id":-100987,"from":{"id":42,"name":"bot"},
+	"text":"Отключение воды","date":"2026-08-18T12:09:05Z","reply_to":null,
+	"service_name":"water","context":{"supplier":"water"}}`
+
+	var m TelegramMessage
+	if err := json.Unmarshal([]byte(payload), &m); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if got := m.Date.String(); got != "2026-08-18T12:09:05" {
+		t.Fatalf("date = %q, want the Z dropped and the local time kept", got)
+	}
+	if m.ChatID != -100987 || m.ServiceName != "water" {
+		t.Fatalf("other fields lost: %+v", m)
+	}
+}
