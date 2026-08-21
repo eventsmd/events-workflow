@@ -142,7 +142,20 @@ func (a *Activities) Notify(ctx context.Context, id, chatID int64) error {
 				return fmt.Errorf("message %d:%d has no context (supplier unknown)", id, chatID)
 			}
 			supplier := message.Context["supplier"]
-			if transcribe.EventStart == nil {
+			// Restoration messages ("... восстановлено") routinely name no
+			// time, so the model leaves event_start empty. For a resume the
+			// time is implied — restored as of the message itself — so the
+			// message's own date stands in (its value, not time.Now(), so a
+			// workflow reset days later still reports when the supply
+			// actually came back). Deliberately confined to resume and to
+			// the notification text only: the DB and the published event
+			// keep the empty event_start, and for shutdown/other the start
+			// time is the whole point, so those still fail loudly.
+			eventStart := transcribe.EventStart
+			if eventStart == nil && strDeref(transcribe.Event) == "resume" {
+				eventStart = &message.Date
+			}
+			if eventStart == nil {
 				return fmt.Errorf("event_start is nil for %d:%d", id, chatID)
 			}
 			houses := addr.FormatHouses()
@@ -151,7 +164,7 @@ func (a *Activities) Notify(ctx context.Context, id, chatID int64) error {
 				addressText = fmt.Sprintf("%s, %s", sub.SubscribeToFulltext, houses)
 			}
 			text := NotificationText(supplier, strDeref(transcribe.Event),
-				addressText, *transcribe.EventStart, strDeref(transcribe.Description))
+				addressText, *eventStart, strDeref(transcribe.Description))
 			tgID, err := strconv.ParseInt(sub.TgID, 10, 64)
 			if err != nil {
 				return fmt.Errorf("bad tg_id %q: %w", sub.TgID, err)

@@ -2,15 +2,21 @@ package workflows
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/sqs"
 	"github.com/google/uuid"
 	"github.com/testcontainers/testcontainers-go"
+	tclocalstack "github.com/testcontainers/testcontainers-go/modules/localstack"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"events-workflow/internal/domain"
+	"events-workflow/internal/messaging"
 	"events-workflow/internal/store"
 )
 
@@ -147,5 +153,156 @@ func TestNotify_NilContext_ReturnsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no context") {
 		t.Fatalf("expected 'no context' error, got: %v", err)
+	}
+}
+
+// startLocalStackSQS boots LocalStack, creates the notifications queue and
+// returns a sender pointed at it plus a client for reading it back.
+func startLocalStackSQS(ctx context.Context, t *testing.T) (*messaging.SQSSender, *sqs.Client, string) {
+	t.Helper()
+	ls, err := tclocalstack.Run(ctx, "localstack/localstack:3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { testcontainers.TerminateContainer(ls) })
+	port, err := ls.MappedPort(ctx, "4566/tcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("AWS_REGION", "us-east-1")
+	t.Setenv("AWS_ENDPOINT_URL", "http://localhost:"+port.Port())
+
+	cfg, err := awsconfig.LoadDefaultConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := sqs.NewFromConfig(cfg)
+	const queueName = "events-notifications"
+	created, err := client.CreateQueue(ctx, &sqs.CreateQueueInput{QueueName: aws.String(queueName)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender, err := messaging.NewSQSSender(ctx, queueName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return sender, client, *created.QueueUrl
+}
+
+// TestNotify_ResumeWithoutEventStart_UsesMessageDate — restoration messages
+// ("... восстановлено") routinely state no time, so the model returns no
+// event_start and the activity used to fail, delivering nothing. For a
+// resume the time is implied: it is restored as of the message itself, so
+// the message's own date stands in. The message date is used rather than
+// the current time so that resetting or replaying a workflow days later
+// still reports when the supply actually came back.
+func TestNotify_ResumeWithoutEventStart_UsesMessageDate(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	sender, sqsClient, queueURL := startLocalStackSQS(ctx, t)
+	a := &Activities{Store: s, Sender: sender}
+
+	const id, chatID = int64(3), int64(-300)
+	messageDate := time.Date(2026, 8, 20, 15, 14, 0, 0, time.UTC)
+	msg := domain.TelegramMessage{
+		ID: id, ChatID: chatID, Text: "... холодное водоснабжение ... восстановлено.",
+		Date:    domain.LocalDateTime{Time: messageDate},
+		From:    &domain.User{ID: 1, Name: "Диспетчер"},
+		Context: map[string]string{"supplier": "water"},
+	}
+	if err := s.SaveMessage(ctx, store.TelegramMessageEntityFrom(msg, uuid.New())); err != nil {
+		t.Fatal(err)
+	}
+	// EventStart intentionally nil: the message says "восстановлено" without
+	// naming a time.
+	if err := s.SaveTranscribe(ctx, &store.TranscribeEntity{
+		ID: id, ChatID: chatID, Event: store.StrPtr("resume"),
+		Description: store.StrPtr("Водоснабжение восстановлено"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	regionKladr := "123-01.001-00.000-00.000-00.000"
+	if err := s.SaveAddress(ctx, &store.AddressEntity{
+		ID: uuid.New(), MessageID: id, ChatID: chatID,
+		RegionKladr: store.StrPtr(regionKladr),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveSubscription(ctx, &store.Subscription{
+		ID: uuid.New(), CreatedAt: time.Now(),
+		SubscribeToKladr:    "123-01.001-02.002-00.000-04.004",
+		TgID:                "555",
+		SubscribeToFulltext: "г. Тирасполь, ул. Ленина",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Notify(ctx, id, chatID); err != nil {
+		t.Fatalf("resume without event_start must still notify: %v", err)
+	}
+
+	recv, err := sqsClient.ReceiveMessage(ctx, &sqs.ReceiveMessageInput{
+		QueueUrl: aws.String(queueURL), MaxNumberOfMessages: 1, WaitTimeSeconds: 5})
+	if err != nil || len(recv.Messages) != 1 {
+		t.Fatalf("expected exactly one notification: %v %v", recv, err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(*recv.Messages[0].Body), &got); err != nil {
+		t.Fatal(err)
+	}
+	text, _ := got["message"].(string)
+	if !strings.Contains(text, "20-08-2026 15:14") {
+		t.Fatalf("notification must carry the message date, got %q", text)
+	}
+	if !strings.Contains(text, "Возобновление") {
+		t.Fatalf("notification lost its event wording: %q", text)
+	}
+}
+
+// TestNotify_ShutdownWithoutEventStart_StillErrors — the stand-in is
+// deliberately confined to resume. For a shutdown the start time is the
+// whole point of the notification, and the message date would be a guess,
+// so a missing event_start must keep failing loudly rather than announce an
+// outage "starting" whenever the message happened to arrive.
+func TestNotify_ShutdownWithoutEventStart_StillErrors(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	a := &Activities{Store: s}
+
+	const id, chatID = int64(4), int64(-400)
+	msg := domain.TelegramMessage{
+		ID: id, ChatID: chatID, Text: "отключение",
+		Date:    domain.LocalDateTime{Time: time.Now()},
+		From:    &domain.User{ID: 1, Name: "n"},
+		Context: map[string]string{"supplier": "water"},
+	}
+	if err := s.SaveMessage(ctx, store.TelegramMessageEntityFrom(msg, uuid.New())); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveTranscribe(ctx, &store.TranscribeEntity{
+		ID: id, ChatID: chatID, Event: store.StrPtr("shutdown"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	regionKladr := "123-01.001-00.000-00.000-00.000"
+	if err := s.SaveAddress(ctx, &store.AddressEntity{
+		ID: uuid.New(), MessageID: id, ChatID: chatID,
+		RegionKladr: store.StrPtr(regionKladr),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveSubscription(ctx, &store.Subscription{
+		ID: uuid.New(), CreatedAt: time.Now(),
+		SubscribeToKladr:    "123-01.001-02.002-00.000-04.004",
+		TgID:                "556",
+		SubscribeToFulltext: "г. Тирасполь, ул. Ленина",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := a.Notify(ctx, id, chatID); err == nil {
+		t.Fatal("shutdown without event_start must still fail the activity")
 	}
 }
